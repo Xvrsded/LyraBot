@@ -116,29 +116,87 @@ async function updateStoreEmbed(client) {
                     }
                 } else if (stockChanged) {
                     console.log(`[Store] Stock changed! Personal: ${currentPersonal}, Group: ${currentGroup}, Pending: ${currentPending}`);
+                    
+                    const isInitialRun = (config.lastPersonalAvailable === null);
+                    if (!isInitialRun) {
+                        const alertChannelId = process.env.STOCK_ALERT_CHANNEL_ID || '1505266706841342063';
+                        const alertChannel = guild.channels.cache.get(alertChannelId) || await guild.channels.fetch(alertChannelId).catch(() => null);
+                        
+                        if (alertChannel) {
+                            const { EmbedBuilder } = require('discord.js');
+                            
+                            const oldPersonalVal = parseInt(config.lastPersonalAvailable);
+                            const oldGroupVal = parseInt(config.lastGroupAvailable);
+                            const newPersonalVal = parseInt(currentPersonal);
+                            const newGroupVal = parseInt(currentGroup);
+                            
+                            const oldPersonal = isNaN(oldPersonalVal) ? 0 : oldPersonalVal;
+                            const oldGroup = isNaN(oldGroupVal) ? 0 : oldGroupVal;
+                            const newPersonal = isNaN(newPersonalVal) ? 0 : newPersonalVal;
+                            const newGroup = isNaN(newGroupVal) ? 0 : newGroupVal;
+                            
+                            const isValidOldPersonal = config.lastPersonalAvailable !== null && config.lastPersonalAvailable !== 'Error';
+                            const isValidNewPersonal = currentPersonal !== 'Error';
+                            const isValidOldGroup = config.lastGroupAvailable !== null && config.lastGroupAvailable !== 'No Access' && config.lastGroupAvailable !== 'Error';
+                            const isValidNewGroup = currentGroup !== 'No Access' && currentGroup !== 'Error';
+                            
+                            // Cek Personal Stock Change
+                            if (isValidOldPersonal && isValidNewPersonal && oldPersonal !== newPersonal) {
+                                const diff = newPersonal - oldPersonal;
+                                const isRefill = diff > 0;
+                                const alertEmbed = new EmbedBuilder()
+                                    .setTitle(isRefill ? '📥 Stock Refill • Personal Robux' : '📤 Stock Sold • Personal Robux')
+                                    .setDescription(isRefill 
+                                        ? `💎 **Personal Robux Stock** telah ditambahkan!\n\n• Jumlah Refill: **+${diff.toLocaleString('id-ID')} R$**\n• Sisa Stok Sekarang: \`${newPersonal.toLocaleString('id-ID')} R$\``
+                                        : `🛒 **Personal Robux Stock** telah berkurang!\n\n• Jumlah Berkurang: **${Math.abs(diff).toLocaleString('id-ID')} R$**\n• Sisa Stok Sekarang: \`${newPersonal.toLocaleString('id-ID')} R$\``
+                                    )
+                                    .setColor(isRefill ? '#00ff00' : '#ffaa00')
+                                    .setTimestamp();
+                                await alertChannel.send({ content: '@everyone', embeds: [alertEmbed] }).catch(console.error);
+                            }
+                            
+                            // Cek Group Stock Change
+                            if (isValidOldGroup && isValidNewGroup && oldGroup !== newGroup) {
+                                const diff = newGroup - oldGroup;
+                                const isRefill = diff > 0;
+                                const alertEmbed = new EmbedBuilder()
+                                    .setTitle(isRefill ? '📥 Stock Refill • Group Robux' : '📤 Stock Sold • Group Robux')
+                                    .setDescription(isRefill 
+                                        ? `🏢 **Group Robux Stock** telah ditambahkan!\n\n• Jumlah Refill: **+${diff.toLocaleString('id-ID')} R$**\n• Sisa Stok Sekarang: \`${newGroup.toLocaleString('id-ID')} R$\``
+                                        : `🛒 **Group Robux Stock** telah berkurang!\n\n• Jumlah Berkurang: **${Math.abs(diff).toLocaleString('id-ID')} R$**\n• Sisa Stok Sekarang: \`${newGroup.toLocaleString('id-ID')} R$\``
+                                    )
+                                    .setColor(isRefill ? '#00ff00' : '#ffaa00')
+                                    .setTimestamp();
+                                await alertChannel.send({ content: '@everyone', embeds: [alertEmbed] }).catch(console.error);
+                            }
+                        }
+                    }
                 }
-
-                const embed = new EmbedBuilder()
-                    .setTitle('🛒 WinterBot Robux Store')
-                    .setDescription('Selamat datang di Robux Store! Pilih menu di bawah ini untuk membeli Robux.')
-                    .setColor('#0099ff')
-                    .addFields(
-                        { name: '💎 Personal Robux', value: `${currentPersonal} R$`, inline: true },
-                        { name: '🏢 Group Robux', value: `${currentGroup} R$`, inline: true },
-                        { name: '📦 Total Paket', value: `${config.packages.length} Paket`, inline: false }
-                    )
-                    .setFooter({ text: `Last Update: ${new Date().toLocaleString('id-ID')}` });
 
                 let packageList = '';
                 if (config.packages.length > 0) {
                     const sortedPackages = [...config.packages].sort((a, b) => a.amount - b.amount);
                     sortedPackages.forEach(pkg => {
-                        packageList += `• **${pkg.amount} R$** - Rp ${pkg.price.toLocaleString('id-ID')}\n`;
+                        packageList += `🔹 **${pkg.amount} Robux** = Rp ${pkg.price.toLocaleString('id-ID')}\n`;
                     });
                 } else {
                     packageList = 'Belum ada paket yang tersedia.';
                 }
-                embed.addFields({ name: '📋 Daftar Paket & Harga', value: packageList });
+
+                const embed = new EmbedBuilder()
+                    .setTitle('🛒 WINTER STORE | PRICE LIST')
+                    .setDescription('```\n╔═══════════════════╗\n    WINTER STORE    \n     PRICE LIST     \n╚═══════════════════╝\n```\nSelamat datang di WINTER STORE! Silakan lihat daftar paket harga dan ketentuan pembelian di bawah ini.')
+                    .setColor('#0099ff')
+                    .addFields(
+                        { name: '💎 Personal Robux Stock', value: `\`${currentPersonal.toLocaleString('id-ID')} R$\``, inline: true },
+                        { name: '🏢 Group Robux Stock', value: `\`${currentGroup.toLocaleString('id-ID')} R$\``, inline: true },
+                        { name: '📋 Daftar Paket & Harga', value: packageList, inline: false },
+                        { name: '💳 Payment Methods', value: '• Seabank\n• Dana\n• GoPay\n• ShopeePay', inline: true },
+                        { name: '🛡️ Service Jaminan', value: '⚡ **Fast Process**\n🔒 **Trusted Seller**', inline: true },
+                        { name: '⚠️ Syarat & Ketentuan (Requirements)', value: '1. **Pembayaran Wajib Di Awal**.\n2. Untuk orderan di atas **1,000 Robux** harus mengaktifkan **Verifikasi 2 Langkah (2FA)** terhadap akun masing-masing agar bisa menerima Robux hingga **10,000 Robux**.\n3. Jika akun belum melakukan verifikasi 2 langkah, batas harian akun hanya bisa menerima **500 Robux** dan **1,000 Robux** per bulan.\n4. **Diharapkan user mencantumkan username dengan benar**, karena kesalahan username bukan tanggung jawab admin.', inline: false }
+                    )
+                    .setFooter({ text: `Last Update: ${new Date().toLocaleString('id-ID')}` })
+                    .setTimestamp();
 
                 const row = new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId('store_order').setLabel('🛒 Order Robux').setStyle(ButtonStyle.Primary),

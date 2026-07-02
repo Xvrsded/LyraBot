@@ -1,0 +1,11 @@
+[
+    {
+        "id": "inventory_full",
+        "trigger": "inventory.update",
+        "condition": { "operator": "gt", "field": "capacity", "value": 90 },
+        "action": {
+            "type": "recommend",
+            "message": "Your inventory is almost full. Consider selling items on the market."
+        }
+    }
+]

@@ -70,6 +70,15 @@ module.exports = {
                     return interaction.editReply('❌ Order ID tidak ditemukan.');
                 }
 
+                if (newStatus === 'completed') {
+                    try {
+                        const { triggerLeaderboardUpdate } = require('../../scripts/update_leaderboard');
+                        triggerLeaderboardUpdate();
+                    } catch (e) {
+                        console.error('Failed to trigger leaderboard update:', e);
+                    }
+                }
+
                 await interaction.editReply(`✅ Pesanan **${orderId}** telah diubah statusnya menjadi: **${newStatus}**.`);
             }
         } catch (error) {

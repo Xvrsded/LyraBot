@@ -1,0 +1,10 @@
+{
+    "id": "overview",
+    "title": "Overview",
+    "description": "Dashboard utama server dan status modul aktif.",
+    "icon": "📊",
+    "permission": "ADMINISTRATOR",
+    "order": 1,
+    "visible": true,
+    "components": ["system_status", "module_toggle"]
+}

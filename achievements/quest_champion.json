@@ -1,0 +1,17 @@
+{
+    "id": "quest-champion",
+    "title": "Quest Champion",
+    "description": "Selesaikan 3 misi (quests) EventBus.",
+    "category": "Quests",
+    "rarity": "Epic",
+    "event": "quest.completed",
+    "conditions": {},
+    "target": 3,
+    "points": 50,
+    "rewards": [
+        { "type": "badge", "badge": "🛡️ Quest Master" }
+    ],
+    "hidden": false,
+    "secret": false,
+    "repeatable": false
+}

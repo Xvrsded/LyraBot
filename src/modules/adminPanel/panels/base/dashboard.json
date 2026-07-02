@@ -1,0 +1,9 @@
+{
+    "id": "dashboard",
+    "title": "Dashboard",
+    "description": "View Server Analytics",
+    "icon": "📊",
+    "permission": "ADMINISTRATOR",
+    "order": 1,
+    "visible": true
+}

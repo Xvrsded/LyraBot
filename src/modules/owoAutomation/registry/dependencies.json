@@ -1,0 +1,11 @@
+{
+  "InventoryEngine": ["LootEngine"],
+  "AchievementEngine": ["QuestEngine"],
+  "DashboardUpdate": [
+    "QuestEngine", "ProgressionEngine", "InventoryEngine", 
+    "EconomyEngine", "AchievementEngine", "LootEngine", 
+    "MarketplaceSync", "StatisticsEngine"
+  ],
+  "AdminPanelUpdate": ["DashboardUpdate"],
+  "NotificationEngine": ["DashboardUpdate"]
+}

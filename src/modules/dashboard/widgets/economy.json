@@ -1,0 +1,9 @@
+{
+    "id": "economy",
+    "title": "Economy",
+    "icon": "💰",
+    "description": "Economy Overview",
+    "refresh": 30,
+    "permission": "ADMINISTRATOR",
+    "priority": 90
+}

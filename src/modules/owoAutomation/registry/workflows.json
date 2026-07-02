@@ -1,0 +1,28 @@
+{
+  "hunt": [
+    "QuestEngine",
+    "ProgressionEngine",
+    "AchievementEngine",
+    "LootEngine",
+    "InventoryEngine",
+    "EconomyEngine",
+    "MarketplaceSync",
+    "StatisticsEngine",
+    "DashboardUpdate",
+    "AdminPanelUpdate",
+    "NotificationEngine"
+  ],
+  "battle": [
+    "QuestEngine",
+    "ProgressionEngine",
+    "AchievementEngine",
+    "EconomyEngine",
+    "StatisticsEngine",
+    "DashboardUpdate"
+  ],
+  "inventory": [
+    "InventoryEngine",
+    "EconomyEngine",
+    "DashboardUpdate"
+  ]
+}

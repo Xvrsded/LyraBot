@@ -1,0 +1,10 @@
+{
+    "id": "moderation",
+    "title": "Moderation",
+    "description": "Auto-mod dan log server.",
+    "icon": "🛡️",
+    "permission": "ADMINISTRATOR",
+    "order": 7,
+    "visible": true,
+    "components": []
+}

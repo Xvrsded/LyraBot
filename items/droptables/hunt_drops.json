@@ -1,0 +1,20 @@
+{
+    "id": "hunt_drops",
+    "name": "Hunt Drop Table",
+    "description": "Drop table untuk event berburu OwO.",
+    "trigger": "owo.hunt.completed",
+    "enabled": true,
+    "rollsPerTrigger": 1,
+    "slots": [
+        { "itemId": "hunter_potion",  "weight": 60, "minQty": 1, "maxQty": 1 },
+        { "itemId": "star_fragment",  "weight": 30, "minQty": 1, "maxQty": 3 },
+        { "itemId": "hunters_badge",  "weight": 8,  "minQty": 1, "maxQty": 1 },
+        { "itemId": "mystery_box",    "weight": 2,  "minQty": 1, "maxQty": 1 }
+    ],
+    "guaranteed": [],
+    "bonus": {
+        "chance": 0.05,
+        "itemId": "golden_key",
+        "qty": 1
+    }
+}

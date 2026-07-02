@@ -1,0 +1,10 @@
+{
+    "id": "statistics",
+    "title": "Statistics",
+    "description": "Statistik dan analitik aktivitas server.",
+    "icon": "📈",
+    "permission": "ADMINISTRATOR",
+    "order": 8,
+    "visible": true,
+    "components": []
+}

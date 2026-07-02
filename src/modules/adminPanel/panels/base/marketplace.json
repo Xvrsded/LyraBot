@@ -1,0 +1,10 @@
+{
+    "id": "marketplace",
+    "title": "Marketplace",
+    "description": "Atur bursa jual beli item antar member.",
+    "icon": "⚖️",
+    "permission": "ADMINISTRATOR",
+    "order": 4,
+    "visible": true,
+    "components": ["active_listings", "escrow_status"]
+}

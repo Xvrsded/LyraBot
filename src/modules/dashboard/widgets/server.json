@@ -1,0 +1,9 @@
+{
+    "id": "server",
+    "title": "Server Overview",
+    "icon": "🖥️",
+    "description": "General server information and member count.",
+    "refresh": 60,
+    "permission": "ADMINISTRATOR",
+    "priority": 100
+}

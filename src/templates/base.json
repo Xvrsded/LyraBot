@@ -1,0 +1,39 @@
+{
+    "version": "v1",
+    "name": "base",
+    "description": "Base server template containing core settings and roles.",
+    "author": "WinterBot Developer",
+    "settings": {
+        "prefix": "!",
+        "language": "id"
+    },
+    "roles": [
+        {
+            "name": "Owner",
+            "color": "#e74c3c",
+            "hoist": true,
+            "permissions": ["Administrator"]
+        },
+        {
+            "name": "Developer",
+            "color": "#1abc9c",
+            "hoist": true,
+            "permissions": ["Administrator"]
+        },
+        {
+            "name": "Member",
+            "color": "#99aab5",
+            "hoist": false,
+            "permissions": []
+        }
+    ],
+    "categories": [],
+    "channels": [],
+    "welcome": {
+        "enabled": false,
+        "message": "Welcome {user} to the server!"
+    },
+    "logs": {
+        "enabled": false
+    }
+}

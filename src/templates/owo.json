@@ -1,0 +1,251 @@
+{
+    "version": "v1",
+    "extends": "base",
+    "name": "owo",
+    "description": "Premium OwO Bot Community template with 10 categories, 60+ channels, 30 roles, specific permissions, welcome setup, and support logs.",
+    "author": "WinterBot Developer",
+    "roles": [
+        {
+            "name": "Server Manager",
+            "color": "#e67e22",
+            "hoist": true,
+            "permissions": ["ManageGuild", "ManageChannels", "ManageRoles"]
+        },
+        {
+            "name": "Head Admin",
+            "color": "#e74c3c",
+            "hoist": true,
+            "permissions": ["ManageGuild", "KickMembers", "BanMembers", "ModerateMembers"]
+        },
+        {
+            "name": "Admin",
+            "color": "#e74c3c",
+            "hoist": true,
+            "permissions": ["KickMembers", "BanMembers", "ModerateMembers"]
+        },
+        {
+            "name": "Moderator",
+            "color": "#2ecc71",
+            "hoist": true,
+            "permissions": ["KickMembers", "ModerateMembers", "ManageMessages"]
+        },
+        {
+            "name": "Trial Moderator",
+            "color": "#2ecc71",
+            "hoist": false,
+            "permissions": ["ModerateMembers", "ManageMessages"]
+        },
+        {
+            "name": "Support Team",
+            "color": "#3498db",
+            "hoist": true,
+            "permissions": []
+        },
+        {
+            "name": "Event Team",
+            "color": "#e91e63",
+            "hoist": true,
+            "permissions": []
+        },
+        {
+            "name": "Booster",
+            "color": "#f47fff",
+            "hoist": true,
+            "permissions": []
+        },
+        {
+            "name": "VIP",
+            "color": "#f1c40f",
+            "hoist": true,
+            "permissions": []
+        },
+        {
+            "name": "Verified",
+            "color": "#2ecc71",
+            "hoist": false,
+            "permissions": []
+        },
+        {
+            "name": "Beginner",
+            "color": "#979c9f",
+            "hoist": false,
+            "permissions": []
+        },
+        {
+            "name": "Hunter",
+            "color": "#71368a",
+            "hoist": false,
+            "permissions": []
+        },
+        {
+            "name": "Elite Hunter",
+            "color": "#ad1457",
+            "hoist": false,
+            "permissions": []
+        },
+        {
+            "name": "Veteran",
+            "color": "#11806a",
+            "hoist": false,
+            "permissions": []
+        },
+        {
+            "name": "Master Hunter",
+            "color": "#a84300",
+            "hoist": false,
+            "permissions": []
+        },
+        {
+            "name": "Legend",
+            "color": "#ad1457",
+            "hoist": true,
+            "permissions": []
+        },
+        {
+            "name": "Immortal",
+            "color": "#1f8b4c",
+            "hoist": true,
+            "permissions": []
+        },
+        {
+            "name": "Red",
+            "color": "#e74c3c",
+            "hoist": false,
+            "permissions": []
+        },
+        {
+            "name": "Blue",
+            "color": "#3498db",
+            "hoist": false,
+            "permissions": []
+        },
+        {
+            "name": "Purple",
+            "color": "#9b59b6",
+            "hoist": false,
+            "permissions": []
+        },
+        {
+            "name": "Pink",
+            "color": "#e91e63",
+            "hoist": false,
+            "permissions": []
+        },
+        {
+            "name": "Orange",
+            "color": "#e67e22",
+            "hoist": false,
+            "permissions": []
+        },
+        {
+            "name": "Green",
+            "color": "#2ecc71",
+            "hoist": false,
+            "permissions": []
+        },
+        {
+            "name": "Black",
+            "color": "#23272a",
+            "hoist": false,
+            "permissions": []
+        },
+        {
+            "name": "White",
+            "color": "#ffffff",
+            "hoist": false,
+            "permissions": []
+        }
+    ],
+    "categories": [
+        { "name": "📜 INFORMATION" },
+        { "name": "💬 COMMUNITY" },
+        { "name": "⚔ OWO" },
+        { "name": "🏆 EVENTS" },
+        { "name": "💼 MARKETPLACE" },
+        { "name": "🤝 SUPPORT" },
+        { "name": "🤖 BOT" },
+        { "name": "👑 STAFF", "isStaffOnly": true },
+        { "name": "🎙 VOICE" }
+    ],
+    "channels": [
+        { "name": "📖・rules", "type": 0, "parent": "📜 INFORMATION", "isReadonly": true, "topic": "Saluran peraturan server." },
+        { "name": "📢・announcements", "type": 0, "parent": "📜 INFORMATION", "isReadonly": true, "topic": "Saluran pengumuman resmi." },
+        { "name": "📅・events", "type": 0, "parent": "📜 INFORMATION", "topic": "Saluran jadwal event server." },
+        { "name": "📋・server-guide", "type": 0, "parent": "📜 INFORMATION", "isReadonly": true, "topic": "Panduan navigasi server." },
+        { "name": "❓・faq", "type": 0, "parent": "📜 INFORMATION", "isReadonly": true, "topic": "Pertanyaan yang sering diajukan (FAQ)." },
+        { "name": "🎭・roles", "type": 0, "parent": "📜 INFORMATION", "topic": "Saluran klaim role/warna." },
+        { "name": "📜・changelog", "type": 0, "parent": "📜 INFORMATION", "topic": "Catatan pembaruan server/bot." },
+        { "name": "📌・important-links", "type": 0, "parent": "📜 INFORMATION", "isReadonly": true, "topic": "Tautan penting komunitas." },
+        
+        { "name": "💬・general", "type": 0, "parent": "💬 COMMUNITY", "topic": "Saluran ngobrol santai umum." },
+        { "name": "👋・introductions", "type": 0, "parent": "💬 COMMUNITY", "topic": "Perkenalkan diri kamu di sini!" },
+        { "name": "📷・media", "type": 0, "parent": "💬 COMMUNITY", "topic": "Bagikan foto atau video menarik." },
+        { "name": "😂・memes", "type": 0, "parent": "💬 COMMUNITY", "topic": "Bagikan meme lucu." },
+        { "name": "🖼️・artwork", "type": 0, "parent": "💬 COMMUNITY", "topic": "Tunjukkan karya seni buatanmu!" },
+        { "name": "🎵・music", "type": 0, "parent": "💬 COMMUNITY", "topic": "Rekomendasi atau obrolan seputar musik." },
+        { "name": "🎮・gaming", "type": 0, "parent": "💬 COMMUNITY", "topic": "Saluran diskusi game." },
+        { "name": "🍜・food", "type": 0, "parent": "💬 COMMUNITY", "topic": "Bagikan foto makanan lezatmu!" },
+        { "name": "🌍・off-topic", "type": 0, "parent": "💬 COMMUNITY", "topic": "Obrolan di luar topik utama." },
+        { "name": "🤖・bot-commands", "type": 0, "parent": "💬 COMMUNITY", "topic": "Perintah bot umum." },
+
+        { "name": "🏹・hunt", "type": 0, "parent": "⚔ OWO", "topic": "Perintah: `owo hunt` / `owo h`." },
+        { "name": "⚔️・battle", "type": 0, "parent": "⚔ OWO", "topic": "Perintah: `owo battle` / `owo b`." },
+        { "name": "🐉・pets", "type": 0, "parent": "⚔ OWO", "topic": "Saluran interaksi pet OwO." },
+        { "name": "💰・economy", "type": 0, "parent": "⚔ OWO", "topic": "Pengecekan koin: `owo cash` / `owo cowo`." },
+        { "name": "🏪・market", "type": 0, "parent": "⚔ OWO", "topic": "Perdagangan item market OwO." },
+        { "name": "💎・gem-trade", "type": 0, "parent": "⚔ OWO", "topic": "Transaksi batu permata / gem OwO." },
+        { "name": "🐾・pet-trade", "type": 0, "parent": "⚔ OWO", "topic": "Transaksi pet OwO." },
+        { "name": "📈・leaderboard", "type": 0, "parent": "⚔ OWO", "topic": "Leaderboard OwO." },
+        { "name": "🎁・daily", "type": 0, "parent": "⚔ OWO", "topic": "Klaim harian: `owo daily`." },
+        { "name": "🎲・gambling", "type": 0, "parent": "⚔ OWO", "topic": "Permainan judi: `owo slots`, `owo flip`." },
+        { "name": "📊・stats", "type": 0, "parent": "⚔ OWO", "topic": "Pengecekan statistik profil OwO." },
+        { "name": "📚・guides", "type": 0, "parent": "⚔ OWO", "isReadonly": true, "topic": "Panduan lengkap cara bermain OwO." },
+
+        { "name": "🎉・giveaways", "type": 0, "parent": "🏆 EVENTS", "topic": "Bagi-bagi hadiah/giveaway." },
+        { "name": "🎯・missions", "type": 0, "parent": "🏆 EVENTS", "topic": "Misi-misi berhadiah dari staff." },
+        { "name": "🏅・hall-of-fame", "type": 0, "parent": "🏆 EVENTS", "isReadonly": true, "topic": "Daftar pemenang dan member terbaik." },
+        { "name": "🎁・rewards", "type": 0, "parent": "🏆 EVENTS", "topic": "Klaim hadiah pemenang event." },
+        { "name": "📢・results", "type": 0, "parent": "🏆 EVENTS", "isReadonly": true, "topic": "Pengumuman hasil pemenang event." },
+        { "name": "💬・event-chat", "type": 0, "parent": "🏆 EVENTS", "topic": "Obrolan khusus seputar event yang sedang berjalan." },
+
+        { "name": "🛒・buy", "type": 0, "parent": "💼 MARKETPLACE", "topic": "Saluran untuk pembeli mencari item." },
+        { "name": "💸・sell", "type": 0, "parent": "💼 MARKETPLACE", "topic": "Saluran untuk penjual memasarkan item." },
+        { "name": "🔄・trade", "type": 0, "parent": "💼 MARKETPLACE", "topic": "Tukar tambah item sesama member." },
+        { "name": "📦・auction", "type": 0, "parent": "💼 MARKETPLACE", "topic": "Lelang item langka." },
+        { "name": "💎・rare-items", "type": 0, "parent": "💼 MARKETPLACE", "topic": "Pemasaran item langka / khusus." },
+        { "name": "⭐・verified-sellers", "type": 0, "parent": "💼 MARKETPLACE", "isReadonly": true, "topic": "Daftar penjual terverifikasi server." },
+
+        { "name": "🎫・create-ticket", "type": 0, "parent": "🤝 SUPPORT", "topic": "Buka tiket untuk menghubungi Staff." },
+        { "name": "📩・support", "type": 0, "parent": "🤝 SUPPORT", "topic": "Saluran bantuan cepat." },
+        { "name": "🚨・report-player", "type": 0, "parent": "🤝 SUPPORT", "topic": "Laporkan pelaku kecurangan/toxic." },
+        { "name": "❓・questions", "type": 0, "parent": "🤝 SUPPORT", "topic": "Tanya jawab seputar server." },
+        { "name": "💡・suggestions", "type": 0, "parent": "🤝 SUPPORT", "topic": "Kirim saran dan kritik Anda di sini." },
+
+        { "name": "🤖・commands", "type": 0, "parent": "🤖 BOT", "topic": "Pemberian perintah khusus bot." },
+        { "name": "📜・logs", "type": 0, "parent": "🤖 BOT", "isLogs": true, "topic": "Log aktivitas bot." },
+        { "name": "🔔・join-leave", "type": 0, "parent": "🤖 BOT", "topic": "Notifikasi join/leave server." },
+        { "name": "⚙️・bot-status", "type": 0, "parent": "🤖 BOT", "isReadonly": true, "topic": "Status operasional bot." },
+        { "name": "💾・backup", "type": 0, "parent": "🤖 BOT", "isReadonly": true, "topic": "Informasi backup server." },
+
+        { "name": "📢・staff-announcements", "type": 0, "parent": "👑 STAFF", "isReadonly": true, "topic": "Pengumuman khusus internal staff." },
+        { "name": "💬・staff-chat", "type": 0, "parent": "👑 STAFF", "isStaffChat": true, "topic": "Saluran obrolan santai staff." },
+        { "name": "📋・applications", "type": 0, "parent": "👑 STAFF", "topic": "Pengajuan pendaftaran staff baru." },
+        { "name": "🚨・reports", "type": 0, "parent": "👑 STAFF", "topic": "Laporan pengaduan member masuk." },
+        { "name": "📝・tasks", "type": 0, "parent": "👑 STAFF", "topic": "Daftar tugas staff server." },
+        { "name": "🔒・archive", "type": 0, "parent": "👑 STAFF", "topic": "Arsip rahasia server." },
+
+        { "name": "🔊 General", "type": 2, "parent": "🎙 VOICE" },
+        { "name": "🔊 Chill", "type": 2, "parent": "🎙 VOICE" },
+        { "name": "🔊 Gaming", "type": 2, "parent": "🎙 VOICE" },
+        { "name": "🔊 Music", "type": 2, "parent": "🎙 VOICE" },
+        { "name": "🔊 Event", "type": 2, "parent": "🎙 VOICE" },
+        { "name": "😴 AFK", "type": 2, "parent": "🎙 VOICE" }
+    ],
+    "welcome": {
+        "enabled": true,
+        "message": "👋 Welcome to OwO grinding server, {user}! Get ready to grind!"
+    },
+    "logs": {
+        "enabled": true
+    }
+}

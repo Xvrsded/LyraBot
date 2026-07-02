@@ -1,0 +1,21 @@
+[
+    {
+        "id": "hunt_cooldown",
+        "trigger": "gameplay.completed",
+        "condition": { "operator": "eq", "field": "activity", "value": "hunt" },
+        "action": {
+            "type": "schedule_reminder",
+            "message": "Hunt is ready!",
+            "delay": 15000
+        }
+    },
+    {
+        "id": "high_reward_notify",
+        "trigger": "gameplay.rewarded",
+        "condition": { "operator": "gt", "field": "coins", "value": 100 },
+        "action": {
+            "type": "notify_reward",
+            "message": "Big catch!"
+        }
+    }
+]

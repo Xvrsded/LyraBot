@@ -7,11 +7,15 @@ const StoreConfigSchema = new mongoose.Schema({
     packages: { 
         type: [{ amount: Number, price: Number }],
         default: [
-            { amount: 100, price: 18000 },
-            { amount: 200, price: 33000 },
-            { amount: 300, price: 47000 },
-            { amount: 400, price: 65000 },
+            { amount: 100, price: 15000 },
+            { amount: 200, price: 30000 },
+            { amount: 300, price: 45000 },
+            { amount: 400, price: 60000 },
             { amount: 500, price: 75000 },
+            { amount: 600, price: 90000 },
+            { amount: 700, price: 105000 },
+            { amount: 800, price: 120000 },
+            { amount: 900, price: 135000 },
             { amount: 1000, price: 150000 }
         ] 
     },

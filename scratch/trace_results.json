@@ -1,0 +1,70 @@
+{
+  "ProductionRuntimeIssues": {
+    "Critical": 8,
+    "Major": 0,
+    "Minor": 6,
+    "Details": [
+      {
+        "file": "modules/integrationValidator/services/syncEngine.js",
+        "function": "Mocking",
+        "rootCause": "Mock object in production",
+        "impact": "Fake data returned",
+        "fix": "Implement real DB logic"
+      },
+      {
+        "file": "modules/integrationValidator/services/validationPipeline.js",
+        "function": "Mocking",
+        "rootCause": "Mock object in production",
+        "impact": "Fake data returned",
+        "fix": "Implement real DB logic"
+      },
+      {
+        "file": "modules/owoControlCenter/services/smartLiveUpdater.js",
+        "function": "Mocking",
+        "rootCause": "Mock object in production",
+        "impact": "Fake data returned",
+        "fix": "Implement real DB logic"
+      },
+      {
+        "file": "modules/owoGameplay/engines/cooldownEngine.js",
+        "function": "Mocking",
+        "rootCause": "Mock object in production",
+        "impact": "Fake data returned",
+        "fix": "Implement real DB logic"
+      },
+      {
+        "file": "modules/owoGameplay/engines/statisticsEngine.js",
+        "function": "Mocking",
+        "rootCause": "Mock object in production",
+        "impact": "Fake data returned",
+        "fix": "Implement real DB logic"
+      },
+      {
+        "file": "modules/setupWizard/services/rollbackService.js",
+        "function": "Mocking",
+        "rootCause": "Mock object in production",
+        "impact": "Fake data returned",
+        "fix": "Implement real DB logic"
+      },
+      {
+        "file": "modules/setupWizard/services/validationService.js",
+        "function": "Mocking",
+        "rootCause": "Mock object in production",
+        "impact": "Fake data returned",
+        "fix": "Implement real DB logic"
+      },
+      {
+        "file": "services/owoIntegrationService.js",
+        "function": "Mocking",
+        "rootCause": "Mock object in production",
+        "impact": "Fake data returned",
+        "fix": "Implement real DB logic"
+      }
+    ]
+  },
+  "DeadCode": 76,
+  "Archive": 35,
+  "Legacy": 0,
+  "Unused": 25,
+  "TechDebt": 6
+}

@@ -1,0 +1,20 @@
+{
+    "id": "xp_elixir",
+    "name": "XP Elixir",
+    "description": "Ramuan pengalaman. Memancarkan sinyal XP sebesar 200 poin ke dalam sistem progression.",
+    "rarity": "Uncommon",
+    "category": "Consumable",
+    "stackable": true,
+    "maxStack": 50,
+    "tradable": true,
+    "sellable": true,
+    "droppable": true,
+    "usable": true,
+    "effects": [
+        { "type": "xp", "amount": 200 }
+    ],
+    "metadata": {
+        "icon": "✨",
+        "color": "#7289da"
+    }
+}

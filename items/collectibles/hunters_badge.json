@@ -1,0 +1,18 @@
+{
+    "id": "hunters_badge",
+    "name": "Hunter's Badge",
+    "description": "Lencana eksklusif bagi pemburu ulung. Item koleksi, tidak dapat dijual.",
+    "rarity": "Uncommon",
+    "category": "Collectible",
+    "stackable": false,
+    "maxStack": 1,
+    "tradable": false,
+    "sellable": false,
+    "droppable": false,
+    "usable": false,
+    "effects": [],
+    "metadata": {
+        "icon": "🏅",
+        "color": "#cd7f32"
+    }
+}

@@ -1,0 +1,10 @@
+{
+    "id": "leveling",
+    "title": "Leveling",
+    "description": "Manage EXP and Leveling settings.",
+    "icon": "⭐",
+    "permission": "ADMINISTRATOR",
+    "order": 14,
+    "visible": true,
+    "components": []
+}

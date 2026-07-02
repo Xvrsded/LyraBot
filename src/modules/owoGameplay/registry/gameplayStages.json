@@ -1,0 +1,12 @@
+{
+    "ValidationEngine": { "priority": 10, "abortOnFail": true, "isParallel": false, "enabled": true },
+    "CooldownEngine": { "priority": 20, "abortOnFail": true, "isParallel": false, "enabled": true },
+    "QuestAdapter": { "priority": 30, "abortOnFail": false, "isParallel": false, "enabled": true },
+    "AchievementAdapter": { "priority": 40, "abortOnFail": false, "isParallel": false, "enabled": true },
+    "ProgressionAdapter": { "priority": 50, "abortOnFail": false, "isParallel": false, "enabled": true },
+    "EconomyAdapter": { "priority": 60, "abortOnFail": false, "isParallel": false, "enabled": true },
+    "InventoryAdapter": { "priority": 70, "abortOnFail": false, "isParallel": false, "enabled": true },
+    "StatisticsEngine": { "priority": 80, "abortOnFail": false, "isParallel": true, "enabled": true },
+    "NotificationEngine": { "priority": 90, "abortOnFail": false, "isParallel": true, "enabled": true },
+    "DashboardEngine": { "priority": 100, "abortOnFail": false, "isParallel": true, "enabled": true }
+}

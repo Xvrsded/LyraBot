@@ -1,0 +1,13 @@
+{
+  "QuestEngine": 100,
+  "ProgressionEngine": 100,
+  "InventoryEngine": 100,
+  "EconomyEngine": 80,
+  "AchievementEngine": 80,
+  "LootEngine": 80,
+  "MarketplaceSync": 50,
+  "StatisticsEngine": 50,
+  "DashboardUpdate": 10,
+  "AdminPanelUpdate": 10,
+  "NotificationEngine": 10
+}

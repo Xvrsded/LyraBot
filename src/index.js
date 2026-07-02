@@ -5,6 +5,7 @@ const { loadEvents } = require('./handlers/eventHandler');
 const { loadCommands } = require('./handlers/commandHandler');
 const { startEligibilityChecker } = require('./scripts/check_eligibility');
 const { startLivePayoutList } = require('./scripts/update_payout_list');
+const { startLiveLeaderboard } = require('./scripts/update_leaderboard');
 
 const client = new Client({
     intents: [
@@ -30,6 +31,9 @@ process.on('uncaughtException', error => {
     console.error('Uncaught Exception:', error);
 });
 
+// Instrument MongoDB queries for metrics tracking
+require('./utils/mongooseInstrumentation').instrument();
+
 // Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log('✅ MongoDB Connected'))
@@ -41,6 +45,7 @@ client.login(process.env.TOKEN).then(() => {
     loadCommands(client);
     startEligibilityChecker(client);
     startLivePayoutList(client);
+    startLiveLeaderboard(client);
 }).catch((err) => {
     console.error('❌ Failed to login:', err);
 });

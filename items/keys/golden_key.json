@@ -1,0 +1,20 @@
+{
+    "id": "golden_key",
+    "name": "Golden Key",
+    "description": "Kunci emas misterius. Dapat membuka peti loot tersembunyi. Efek custom dari plugin.",
+    "rarity": "Epic",
+    "category": "Key",
+    "stackable": true,
+    "maxStack": 10,
+    "tradable": false,
+    "sellable": false,
+    "droppable": false,
+    "usable": true,
+    "effects": [
+        { "type": "custom", "event": "item.golden_key_used", "payload": {} }
+    ],
+    "metadata": {
+        "icon": "🗝️",
+        "color": "#ffaa00"
+    }
+}

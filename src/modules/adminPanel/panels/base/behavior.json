@@ -1,0 +1,10 @@
+{
+    "id": "behavior",
+    "title": "Behavior",
+    "description": "Manage bot behavioral traits.",
+    "icon": "🤖",
+    "permission": "ADMINISTRATOR",
+    "order": 17,
+    "visible": true,
+    "components": []
+}

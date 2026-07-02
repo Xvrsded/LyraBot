@@ -1,0 +1,18 @@
+{
+    "id": "star_fragment",
+    "name": "Star Fragment",
+    "description": "Pecahan bintang yang bersinar. Bahan langka yang bisa diperdagangkan antar pemain.",
+    "rarity": "Rare",
+    "category": "Material",
+    "stackable": true,
+    "maxStack": 999,
+    "tradable": true,
+    "sellable": true,
+    "droppable": true,
+    "usable": false,
+    "effects": [],
+    "metadata": {
+        "icon": "⭐",
+        "color": "#ffd700"
+    }
+}

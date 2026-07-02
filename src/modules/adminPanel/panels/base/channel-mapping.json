@@ -1,0 +1,10 @@
+{
+    "id": "channel-mapping",
+    "title": "Channel Mapping",
+    "description": "Map Discord channels to internal functions.",
+    "icon": "🗺️",
+    "permission": "ADMINISTRATOR",
+    "order": 16,
+    "visible": true,
+    "components": []
+}

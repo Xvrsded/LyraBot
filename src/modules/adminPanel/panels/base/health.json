@@ -1,0 +1,10 @@
+{
+    "id": "health",
+    "title": "System Health",
+    "description": "Monitor bot integration health.",
+    "icon": "🩺",
+    "permission": "ADMINISTRATOR",
+    "order": 13,
+    "visible": true,
+    "components": []
+}

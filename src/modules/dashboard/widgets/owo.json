@@ -1,0 +1,9 @@
+{
+    "id": "owo",
+    "title": "OwO Monitor",
+    "icon": "🐱",
+    "description": "OwO Bot integration stats.",
+    "refresh": 15,
+    "permission": "ADMINISTRATOR",
+    "priority": 50
+}

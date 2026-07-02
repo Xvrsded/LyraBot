@@ -1,0 +1,15 @@
+{
+    "id": "hunt-veteran",
+    "title": "Berburu Handal",
+    "description": "Berhasil memburu pet OwO sebanyak 5 kali.",
+    "category": "OwO Hunt",
+    "event": "owo.hunt.completed",
+    "conditions": {},
+    "target": 5,
+    "rewards": [
+        { "type": "xp", "amount": 100 },
+        { "type": "coins", "amount": 250 }
+    ],
+    "repeatable": true,
+    "hidden": false
+}

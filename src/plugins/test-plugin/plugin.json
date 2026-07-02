@@ -1,0 +1,7 @@
+{
+    "name": "Test Plugin",
+    "description": "A modular plugin for testing hot reload and lifecycle events.",
+    "version": "1.0.0",
+    "author": "Antigravity",
+    "dependencies": []
+}

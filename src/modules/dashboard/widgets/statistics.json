@@ -1,0 +1,9 @@
+{
+    "id": "statistics",
+    "title": "Statistics",
+    "icon": "📈",
+    "description": "Realtime activity and metrics.",
+    "refresh": 5,
+    "permission": "ADMINISTRATOR",
+    "priority": 70
+}

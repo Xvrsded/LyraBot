@@ -1,0 +1,15 @@
+{
+    "id": "battle-gladiator",
+    "title": "Gladiator Arena",
+    "description": "Menangkan pertarungan OwO sebanyak 3 kali.",
+    "category": "OwO Battle",
+    "event": "owo.battle.completed",
+    "conditions": { "won": true },
+    "target": 3,
+    "rewards": [
+        { "type": "xp", "amount": 150 },
+        { "type": "coins", "amount": 500 }
+    ],
+    "repeatable": true,
+    "hidden": false
+}

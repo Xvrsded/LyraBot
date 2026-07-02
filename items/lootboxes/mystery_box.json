@@ -1,0 +1,20 @@
+{
+    "id": "mystery_box",
+    "name": "Mystery Box",
+    "description": "Kotak misterius yang berisi kejutan. Gunakan untuk mendapatkan item acak dari drop table hunt.",
+    "rarity": "Rare",
+    "category": "Loot Box",
+    "stackable": true,
+    "maxStack": 20,
+    "tradable": true,
+    "sellable": false,
+    "droppable": false,
+    "usable": true,
+    "effects": [
+        { "type": "loot_table", "tableId": "hunt_drops" }
+    ],
+    "metadata": {
+        "icon": "📦",
+        "color": "#9b59b6"
+    }
+}

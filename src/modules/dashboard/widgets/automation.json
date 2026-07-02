@@ -1,0 +1,9 @@
+{
+    "id": "automation",
+    "title": "Automation",
+    "icon": "🤖",
+    "description": "Background tasks and jobs.",
+    "refresh": 20,
+    "permission": "ADMINISTRATOR",
+    "priority": 60
+}

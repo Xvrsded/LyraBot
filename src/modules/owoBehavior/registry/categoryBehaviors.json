@@ -1,0 +1,10 @@
+{
+  "owo": { "aliases": ["owo", "owo-system", "gameplay", "🎮・owo system"] },
+  "inventory": { "aliases": ["inventory", "backpack", "storage", "🎒・inventory"] },
+  "pets": { "aliases": ["pets", "zoo", "animals", "🐾・pet system"] },
+  "progression": { "aliases": ["progression", "quests", "leveling", "📈・progression"] },
+  "economy": { "aliases": ["economy", "market", "shop", "💰・economy"] },
+  "statistics": { "aliases": ["statistics", "leaderboard", "rankings", "📊・statistics"] },
+  "automation": { "aliases": ["automation", "auto", "bots", "🤖・automation"] },
+  "admin": { "aliases": ["admin", "staff", "management", "⚙️・administration"] }
+}

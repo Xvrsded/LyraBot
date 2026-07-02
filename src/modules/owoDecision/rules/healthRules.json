@@ -1,0 +1,22 @@
+[
+    {
+        "id": "workflow_failure_alert",
+        "trigger": "pipeline.failed",
+        "condition": { "operator": "exists", "field": "error" },
+        "action": {
+            "type": "raise_alert",
+            "level": "critical",
+            "message": "A pipeline workflow failed abruptly."
+        }
+    },
+    {
+        "id": "health_score_low",
+        "trigger": "health.update",
+        "condition": { "operator": "lt", "field": "score", "value": 70 },
+        "action": {
+            "type": "raise_alert",
+            "level": "warning",
+            "message": "Overall pipeline health has dropped below 70%."
+        }
+    }
+]

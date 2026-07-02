@@ -1,0 +1,10 @@
+{
+    "id": "configuration",
+    "title": "Configuration",
+    "description": "Pengaturan dasar WinterBot.",
+    "icon": "⚙️",
+    "permission": "ADMINISTRATOR",
+    "order": 9,
+    "visible": true,
+    "components": []
+}

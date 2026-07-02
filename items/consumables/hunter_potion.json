@@ -1,0 +1,20 @@
+{
+    "id": "hunter_potion",
+    "name": "Hunter's Potion",
+    "description": "Ramuan pemburu. Memberikan 100 koin secara instan saat digunakan.",
+    "rarity": "Common",
+    "category": "Consumable",
+    "stackable": true,
+    "maxStack": 99,
+    "tradable": true,
+    "sellable": true,
+    "droppable": true,
+    "usable": true,
+    "effects": [
+        { "type": "coins", "amount": 100 }
+    ],
+    "metadata": {
+        "icon": "🧪",
+        "color": "#5ba55b"
+    }
+}

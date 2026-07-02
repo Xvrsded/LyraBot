@@ -1,8 +1,18 @@
 const { Events } = require('discord.js');
+const interactionRouter = require('../handlers/interactionRouter');
 
 module.exports = {
     name: Events.InteractionCreate,
     async execute(interaction, client) {
+        // 1. Enterprise Discord UI Framework Router
+        const uiRouter = require('../modules/ui/utils/router');
+        const isUI = await uiRouter.handleInteraction(interaction);
+        if (isUI) return;
+
+        // 2. Centralized Interaction Router (Legacy/Module components)
+        const handled = await interactionRouter.handle(interaction);
+        if (handled) return;
+
         if (interaction.isChatInputCommand()) {
             const command = client.commands.get(interaction.commandName);
 
@@ -10,9 +20,27 @@ module.exports = {
                 console.error(`No command matching ${interaction.commandName} was found.`);
                 return;
             }
+        } else if (interaction.isAutocomplete()) {
+            const command = client.commands.get(interaction.commandName);
+            if (command && typeof command.autocomplete === 'function') {
+                try {
+                    await command.autocomplete(interaction);
+                } catch (error) {
+                    console.error('Autocomplete Execution Error:', error);
+                }
+            }
+            return;
+        }
 
+        if (interaction.isChatInputCommand()) {
+            const command = client.commands.get(interaction.commandName);
+
+            const startTime = Date.now();
             try {
                 await command.execute(interaction);
+                const latency = Date.now() - startTime;
+                const metricsService = require('../services/metricsService');
+                metricsService.recordCommand(interaction.commandName, latency);
             } catch (error) {
                 console.error('Command Execution Error:', error);
                 try {
@@ -144,6 +172,13 @@ module.exports = {
                     // 1. Update order status
                     order.status = 'delivered';
                     await order.save();
+
+                    try {
+                        const { triggerLeaderboardUpdate } = require('../scripts/update_leaderboard');
+                        triggerLeaderboardUpdate();
+                    } catch (e) {
+                        console.error('Failed to trigger leaderboard update:', e);
+                    }
                     
                     // 2. Update Embed Ticket
                     const message = interaction.message;
@@ -215,6 +250,13 @@ module.exports = {
                     
                     order.status = 'delivered';
                     await order.save();
+
+                    try {
+                        const { triggerLeaderboardUpdate } = require('../scripts/update_leaderboard');
+                        triggerLeaderboardUpdate();
+                    } catch (e) {
+                        console.error('Failed to trigger leaderboard update:', e);
+                    }
                     
                     const message = interaction.message;
                     if (message && message.embeds && message.embeds.length > 0) {
@@ -322,6 +364,190 @@ module.exports = {
                     setTimeout(() => {
                         interaction.channel.delete().catch(console.error);
                     }, 10000);
+                } else if (customId.startsWith('check_eligibility_')) {
+                    await interaction.deferReply({ ephemeral: true });
+                    const targetDiscordId = customId.replace('check_eligibility_', '');
+                    
+                    const User = require('../models/User');
+                    const dbUser = await User.findOne({ discordId: targetDiscordId });
+                    
+                    if (!dbUser) {
+                        return interaction.editReply('❌ Data user tidak ditemukan di database.');
+                    }
+                    
+                    const groupId = process.env.GROUP_ID;
+                    if (groupId && dbUser.robloxId) {
+                        try {
+                            const noblox = require('noblox.js');
+                            const rank = await noblox.getRankInGroup(parseInt(groupId), dbUser.robloxId).catch(() => 0);
+                            if (rank === 0) {
+                                return interaction.editReply(`⚠️ Akun Roblox **@${dbUser.robloxUsername}** belum bergabung ke grup Roblox kami. Silakan masuk ke grup terlebih dahulu untuk bisa menerima payout!`);
+                            }
+                        } catch (err) {
+                            console.error('Failed to check group rank:', err);
+                        }
+                    }
+                    
+                    const joinedAt = dbUser.createdAt || new Date();
+                    const diffTime = Math.abs(new Date() - joinedAt);
+                    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                    
+                    const roleId = process.env.ELIGIBLE_ROLE_ID;
+                    const member = await interaction.guild.members.fetch(targetDiscordId).catch(() => null);
+                    
+                    if (diffDays >= 14 || dbUser.eligibleForPayout) {
+                        dbUser.eligibleForPayout = true;
+                        await dbUser.save();
+                        
+                        if (roleId && member) {
+                            try {
+                                if (!member.roles.cache.has(roleId)) {
+                                    await member.roles.add(roleId);
+                                }
+                            } catch (err) {
+                                console.error('Failed to add eligible role:', err);
+                            }
+                        }
+                        
+                        const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+                        const oldEmbed = interaction.message.embeds[0];
+                        if (oldEmbed) {
+                            const embed = EmbedBuilder.from(oldEmbed);
+                            const fields = oldEmbed.fields.map(f => {
+                                if (f.name.includes('Eligible Date')) {
+                                    return { name: '✅ Status Eligibility', value: '🎉 **ELIGIBLE (Sudah +14 Hari)**', inline: true };
+                                }
+                                return f;
+                            });
+                            embed.setFields(fields);
+                            embed.setColor('#00ff00');
+                            
+                            const row = new ActionRowBuilder().addComponents(
+                                new ButtonBuilder()
+                                    .setCustomId(`check_eligibility_${targetDiscordId}`)
+                                    .setLabel('✅ Eligible')
+                                    .setStyle(ButtonStyle.Success)
+                                    .setDisabled(true)
+                            );
+                            
+                            await interaction.message.edit({ embeds: [embed], components: [row] }).catch(console.error);
+                        }
+                        
+                        return interaction.editReply('🎉 Sukses! Akun telah terverifikasi sebagai **Eligible** dan role telah diberikan.');
+                    } else {
+                        return interaction.editReply(`⏳ Akun belum memenuhi syarat durasi server (butuh 14 hari).\n\n• Roblox: **@${dbUser.robloxUsername}**\n• Durasi bergabung: **${diffDays} hari**\n• Sisa waktu: **${14 - diffDays} hari** lagi.`);
+                    }
+                } else if (customId === 'admin_clone_server') {
+                    const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
+                    const modal = new ModalBuilder()
+                        .setCustomId('admin_clone_modal')
+                        .setTitle('Sync / Clone Server');
+                    const targetInput = new TextInputBuilder()
+                        .setCustomId('target_guild_id')
+                        .setLabel('Target Guild ID (ID Server Baru)')
+                        .setPlaceholder('Masukkan ID server baru tempat menyalin...')
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(true)
+                        .setMinLength(15)
+                        .setMaxLength(25);
+                    modal.addComponents(new ActionRowBuilder().addComponents(targetInput));
+                    return await interaction.showModal(modal);
+                } else if (customId === 'admin_wipe_server') {
+                    const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
+                    const modal = new ModalBuilder()
+                        .setCustomId('admin_wipe_modal')
+                        .setTitle('Wipe Server Target');
+                    const targetInput = new TextInputBuilder()
+                        .setCustomId('target_guild_id')
+                        .setLabel('Target Guild ID')
+                        .setPlaceholder('Masukkan ID server target yang akan dibersihkan...')
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(true)
+                        .setMinLength(15)
+                        .setMaxLength(25);
+                    const confirmInput = new TextInputBuilder()
+                        .setCustomId('confirm_wipe')
+                        .setLabel('Ketik "WIPE" untuk mengonfirmasi')
+                        .setPlaceholder('WIPE')
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(true)
+                        .setMinLength(4)
+                        .setMaxLength(4);
+                    modal.addComponents(
+                        new ActionRowBuilder().addComponents(targetInput),
+                        new ActionRowBuilder().addComponents(confirmInput)
+                    );
+                    return await interaction.showModal(modal);
+                } else if (customId === 'admin_autogen_server') {
+                    const { StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ActionRowBuilder } = require('discord.js');
+                    const select = new StringSelectMenuBuilder()
+                        .setCustomId('admin_select_template')
+                        .setPlaceholder('Pilih template server yang ingin di-generate...')
+                        .addOptions(
+                            new StringSelectMenuOptionBuilder()
+                                .setLabel('Roblox Store')
+                                .setDescription('Template server toko Robux (sama seperti server ini)')
+                                .setValue('roblox_store')
+                                .setEmoji('💎'),
+                            new StringSelectMenuOptionBuilder()
+                                .setLabel('OwO Bot Server')
+                                .setDescription('Template server khusus bot OwO (grind, media, chat)')
+                                .setValue('owo_bot')
+                                .setEmoji('🤖')
+                        );
+                    const row = new ActionRowBuilder().addComponents(select);
+                    await interaction.reply({ content: 'Pilih salah satu template server di bawah ini untuk di-generate secara otomatis:', components: [row], ephemeral: true });
+                } else if (customId === 'admin_layout_update') {
+                    const { StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ActionRowBuilder } = require('discord.js');
+                    const select = new StringSelectMenuBuilder()
+                        .setCustomId('admin_select_layout')
+                        .setPlaceholder('Pilih Aesthetic Layout...')
+                        .addOptions(
+                            new StringSelectMenuOptionBuilder().setLabel('Gamer / Tech').setDescription('⚡ [CATEGORY] | >_ channel-name').setValue('gamer').setEmoji('⚡'),
+                            new StringSelectMenuOptionBuilder().setLabel('Elegant Diamond').setDescription('✦・[CATEGORY] | ❖ channel-name ❖').setValue('diamond').setEmoji('💎'),
+                            new StringSelectMenuOptionBuilder().setLabel('Royal Fantasy').setDescription('✦ [CATEGORY] ✦ | ⧼ channel-name ⧽').setValue('royal').setEmoji('👑'),
+                            new StringSelectMenuOptionBuilder().setLabel('Connected Nodes').setDescription('🌸 [CATEGORY] | ⑆ channel-name ⑆').setValue('nodes').setEmoji('🌸'),
+                            new StringSelectMenuOptionBuilder().setLabel('Tree Branch').setDescription('✦・[CATEGORY] | ┣・channel-name').setValue('branch').setEmoji('🌿'),
+                            new StringSelectMenuOptionBuilder().setLabel('Undo / Restore Default').setDescription('Mengembalikan layout ke emote dan titik dasar.').setValue('restore').setEmoji('↩️')
+                        );
+                    const row = new ActionRowBuilder().addComponents(select);
+                    await interaction.reply({ content: '**🎨 Server Layout Manager**\nPilih style layout yang ingin diterapkan pada seluruh channel dan kategori di server ini.', components: [row], ephemeral: true });
+                } else if (customId === 'admin_resend_panels') {
+                    await interaction.deferReply({ ephemeral: true });
+                    const { updateStoreEmbed } = require('../services/storeService');
+                    const { updateProductEmbed } = require('../services/productService');
+                    const { ActionRowBuilder } = require('discord.js');
+                    await updateStoreEmbed(interaction.client);
+                    await updateProductEmbed(interaction.client, interaction.guild.id);
+                    
+                    const verifyChannel = interaction.guild.channels.cache.find(c => c.type === 0 && (c.name.includes('verify') || c.name.includes('verif') || c.name.includes('konfirmasi')));
+                    if (verifyChannel) {
+                        const { EmbedBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+                        const embed = new EmbedBuilder()
+                            .setTitle('🔐 Verifikasi Akun Roblox')
+                            .setDescription('Silakan klik tombol di bawah ini untuk memverifikasi akun Roblox Anda dan mengecek kelayakan Payout.\n\n**Syarat Payout:**\n1. Harus tergabung di Community Roblox kami.\n2. Harus sudah berada di Community Roblox kami selama minimal 14 Hari (Server Discord ini hanya untuk antrean / order Robux).')
+                            .setColor('#0099ff');
+                        const row = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder().setCustomId('verify_btn').setLabel('Verifikasi Sekarang').setStyle(ButtonStyle.Success).setEmoji('🔗')
+                        );
+                        await verifyChannel.send({ embeds: [embed], components: [row] }).catch(console.error);
+                    }
+                    const ticketChannel = interaction.guild.channels.cache.find(c => c.type === 0 && (c.name.includes('ticket') || c.name.includes('support') || c.name.includes('bantuan')));
+                    if (ticketChannel) {
+                        const { EmbedBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+                        const embed = new EmbedBuilder()
+                            .setColor('#0099ff')
+                            .setTitle('WinterBot Support')
+                            .setDescription('Silakan klik tombol di bawah ini untuk membuat tiket baru sesuai kebutuhan Anda.');
+                        const row = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder().setCustomId('ticket_support').setLabel('Support').setEmoji('🎫').setStyle(ButtonStyle.Primary),
+                            new ButtonBuilder().setCustomId('ticket_order').setLabel('Order').setEmoji('🛒').setStyle(ButtonStyle.Success),
+                            new ButtonBuilder().setCustomId('ticket_ugc').setLabel('Custom UGC').setEmoji('🎨').setStyle(ButtonStyle.Secondary),
+                            new ButtonBuilder().setCustomId('ticket_report').setLabel('Report').setEmoji('🐛').setStyle(ButtonStyle.Danger)
+                        );
+                        await ticketChannel.send({ embeds: [embed], components: [row] }).catch(console.error);
+                    }
+                    await interaction.editReply('✅ Panel-panel berhasil dikirim ulang ke channel masing-masing!');
                 } else if (customId === 'store_refresh') {
                     await interaction.deferReply({ ephemeral: true });
                     const StoreConfig = require('../models/StoreConfig');
@@ -335,17 +561,18 @@ module.exports = {
                     await updateStoreEmbed(interaction.client);
                     await interaction.editReply('✅ Stock berhasil direfresh!');
                 } else if (customId === 'store_packages') {
+                    await interaction.deferReply({ ephemeral: true });
                     const StoreConfig = require('../models/StoreConfig');
                     const config = await StoreConfig.findOne({ guildId: interaction.guild.id });
                     if (!config || config.packages.length === 0) {
-                        return interaction.reply({ content: 'Belum ada paket yang tersedia.', ephemeral: true });
+                        return interaction.editReply('Belum ada paket yang tersedia.');
                     }
                     const sortedPackages = [...config.packages].sort((a, b) => a.amount - b.amount);
                     let packageList = '📋 **Daftar Paket Robux**\n\n';
                     sortedPackages.forEach(pkg => {
-                        packageList += `• **${pkg.amount} R$** - Rp ${pkg.price.toLocaleString('id-ID')}\n`;
+                        packageList += `🔹 **${pkg.amount} Robux** = Rp ${pkg.price.toLocaleString('id-ID')}\n`;
                     });
-                    await interaction.reply({ content: packageList, ephemeral: true });
+                    await interaction.editReply(packageList);
                 } else if (customId === 'store_order') {
                     const StoreConfig = require('../models/StoreConfig');
                     const config = await StoreConfig.findOne({ guildId: interaction.guild.id });
@@ -366,6 +593,7 @@ module.exports = {
                         const usernameInput = new TextInputBuilder()
                             .setCustomId('roblox_username')
                             .setLabel('Username Roblox')
+                            .setPlaceholder('Pastikan benar! Kesalahan username bukan tanggung jawab admin.')
                             .setStyle(TextInputStyle.Short)
                             .setRequired(true);
                             
@@ -397,11 +625,12 @@ module.exports = {
                     const row = new ActionRowBuilder().addComponents(select);
                     await interaction.reply({ content: 'Pilih paket yang ingin Anda beli, atau pilih Input Manual:', components: [row], ephemeral: true });
                 } else if (customId === 'product_buy_btn') {
+                    await interaction.deferReply({ ephemeral: true });
                     const Product = require('../models/Product');
                     const products = await Product.find({ active: true });
                     
                     if (products.length === 0) {
-                        return interaction.reply({ content: 'Toko saat ini tidak memiliki produk aktif.', ephemeral: true });
+                        return interaction.editReply('Toko saat ini tidak memiliki produk aktif.');
                     }
                     
                     const { StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ActionRowBuilder } = require('discord.js');
@@ -419,7 +648,7 @@ module.exports = {
                     });
                     
                     const row = new ActionRowBuilder().addComponents(select);
-                    await interaction.reply({ content: 'Pilih produk yang ingin Anda beli dari daftar di bawah ini:', components: [row], ephemeral: true });
+                    await interaction.editReply({ content: 'Pilih produk yang ingin Anda beli dari daftar di bawah ini:', components: [row] });
                 }
             } catch (error) {
                 console.error('Button Interaction Error:', error);
@@ -434,7 +663,76 @@ module.exports = {
                 }
             }
         } else if (interaction.isStringSelectMenu()) {
-            if (interaction.customId === 'store_order_select') {
+            if (interaction.customId === 'admin_select_layout') {
+                const style = interaction.values[0];
+                const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
+                const modal = new ModalBuilder()
+                    .setCustomId(`admin_layout_modal:${style}`)
+                    .setTitle('Update Server Layout');
+                const targetInput = new TextInputBuilder()
+                    .setCustomId('target_guild_id')
+                    .setLabel('Target Guild ID (ID Server)')
+                    .setPlaceholder('Masukkan ID server yang akan diupdate...')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true)
+                    .setMinLength(15)
+                    .setMaxLength(25);
+                modal.addComponents(new ActionRowBuilder().addComponents(targetInput));
+                return await interaction.showModal(modal);
+            } else if (interaction.customId === 'admin_select_template') {
+                const templateType = interaction.values[0];
+                const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
+                const modal = new ModalBuilder()
+                    .setCustomId(`admin_autogen_modal:${templateType}`)
+                    .setTitle('Generate Server Template');
+                const targetInput = new TextInputBuilder()
+                    .setCustomId('target_guild_id')
+                    .setLabel('Target Guild ID (ID Server Baru)')
+                    .setPlaceholder('Masukkan ID server baru tempat men-generate...')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true)
+                    .setMinLength(15)
+                    .setMaxLength(25);
+                modal.addComponents(new ActionRowBuilder().addComponents(targetInput));
+                return await interaction.showModal(modal);
+            } else if (interaction.customId === 'admin_select_actions') {
+                const selectedValue = interaction.values[0];
+                await interaction.deferReply({ ephemeral: true });
+
+                if (selectedValue === 'manage_prices') {
+                    await interaction.editReply('💡 Untuk mengelola harga paket Robux, Anda dapat menggunakan slash command berikut:\n• `/store prices <packages>`\n*Contoh: `/store prices 100:15000, 500:70000`*');
+                } else if (selectedValue === 'config_welcome') {
+                    await interaction.editReply('👋 Untuk mengatur modul Welcome/Penyambutan member baru, gunakan slash command:\n• `/welcome setup <channel> <role>`\n• `/welcome message <text>`\n• `/welcome enable` atau `/welcome disable`');
+                } else if (selectedValue === 'config_leave') {
+                    await interaction.editReply('🚪 Untuk mengatur modul Goodbye/Perpisahan member keluar, gunakan slash command:\n• `/goodbye setup <channel>`\n• `/goodbye message <text>`\n• `/goodbye enable` atau `/goodbye disable`');
+                } else if (selectedValue === 'view_orders') {
+                    const Order = require('../models/Order');
+                    const ProductOrder = require('../models/ProductOrder');
+
+                    const recentRobux = await Order.find().sort({ createdAt: -1 }).limit(5);
+                    const recentProducts = await ProductOrder.find().sort({ createdAt: -1 }).limit(5);
+
+                    let list = '📋 **5 Transaksi Robux Terakhir:**\n';
+                    if (recentRobux.length === 0) {
+                        list += '• Belum ada transaksi Robux.\n';
+                    } else {
+                        recentRobux.forEach(o => {
+                            list += `• ID: \`${o.orderId}\` | User: <@${o.userId}> | ${o.robuxAmount} R$ | Rp ${o.price.toLocaleString('id-ID')} | Status: \`${o.status}\`\n`;
+                        });
+                    }
+
+                    list += '\n📋 **5 Transaksi Produk Terakhir:**\n';
+                    if (recentProducts.length === 0) {
+                        list += '• Belum ada transaksi Produk.\n';
+                    } else {
+                        recentProducts.forEach(o => {
+                            list += `• ID: \`${o.orderId}\` | User: <@${o.userId}> | ${o.productName} | Rp ${o.price.toLocaleString('id-ID')} | Status: \`${o.status}\`\n`;
+                        });
+                    }
+
+                    await interaction.editReply(list);
+                }
+            } else if (interaction.customId === 'store_order_select') {
                 const selectedValue = interaction.values[0];
                 
                 const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
@@ -454,6 +752,7 @@ module.exports = {
                                     const usernameInput = new TextInputBuilder()
                         .setCustomId('roblox_username')
                         .setLabel('Username Roblox')
+                        .setPlaceholder('Pastikan benar! Kesalahan username bukan tanggung jawab admin.')
                         .setStyle(TextInputStyle.Short)
                         .setRequired(true);
                         
@@ -472,77 +771,234 @@ module.exports = {
                         return interaction.reply({ content: 'Maaf, stok produk ini sedang kosong.', ephemeral: true });
                     }
 
-                    await interaction.deferReply({ ephemeral: true });
-                    
-                    // Reduce stock
-                    product.stock -= 1;
-                    await product.save();
-                    const { updateProductEmbed } = require('../services/productService');
-                    await updateProductEmbed(interaction.client, interaction.guild.id);
+                    const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
+                    const modal = new ModalBuilder()
+                        .setCustomId(`product_buy_modal:${selectedProductName}`)
+                        .setTitle(`Beli Produk`);
 
-                    const ticketId = `prod-${interaction.user.id.slice(-4)}-${Date.now().toString().slice(-4)}`;
-
-                    const channel = await interaction.guild.channels.create({
-                        name: `order-${interaction.user.username}`,
-                        type: 0,
-                        permissionOverwrites: [
-                            { id: interaction.guild.id, deny: ['ViewChannel'] },
-                            { id: interaction.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] },
-                            { id: interaction.client.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory', 'ManageChannels'] },
-                            { id: '1505190278003298324', allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }, // Owner
-                            { id: '1517049069166526546', allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }  // Admin
-                        ],
-                    });
-
-                    const Ticket = require('../models/Ticket');
-                    await Ticket.create({
-                        ticketId: channel.id,
-                        ownerId: interaction.user.id,
-                        category: 'product'
-                    });
-                    
-                    const ProductOrder = require('../models/ProductOrder');
-                    await ProductOrder.create({
-                        orderId: ticketId,
-                        userId: interaction.user.id,
-                        productName: product.name,
-                        price: product.price,
-                        channelId: channel.id,
-                        status: 'pending'
-                    });
-
-                    // Auto notes logic
-                    const nameLower = product.name.toLowerCase();
-                    let productNotes = 'Akan diproses secepatnya.';
-                    
-                    if (nameLower.includes('bot')) {
-                        productNotes = 'Estimasi pengerjaan paling lama 3 - 7 hari.';
-                    } else if (nameLower.includes('decoration') || nameLower.includes('deco')) {
-                        productNotes = 'Proses via login, paling lama bisa beberapa jam.';
-                    } else if (nameLower.includes('akun') || nameLower.includes('nitro')) {
-                        productNotes = 'Proses tergantung antrian yang ada.';
-                    }
-
-                    const paymentInfo = `\n\n**🏦 Informasi Pembayaran:**\n• **Seabank** -> 901269725883 [Guntur]\n• **Dana** -> 082110831473 [Guntur]\n• **Gopay** -> 081519308407 [Kai]\n• **Shopepay** -> 0881080702615 [WinterStoree]\n\n_Silakan lakukan transfer sesuai dengan nominal harga pesanan Anda. Setelah itu, **kirimkan bukti pembayaran Anda di channel ini** dan jangan lupa tag Admin (<@&1517049069166526546>) atau Owner (<@&1505190278003298324>) agar pesanan segera diproses!_`;
-
-                    const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-                    const embed = new EmbedBuilder()
-                        .setTitle('🛒 Pesanan Produk WinterBot')
-                        .setDescription(`Halo ${interaction.user}, terima kasih banyak telah mempercayai layanan kami! ✨\nPesananmu sudah kami terima dan stok telah berhasil di-booking. Staf kami akan segera meninjau pesanan ini.\n\n**📦 Detail Pesanan:**\n• **Produk:** ${product.name}\n• **Harga:** Rp ${product.price.toLocaleString('id-ID')}\n• **Status:** 🟡 Pending\n\n**📌 Notes Penting:** \n📝 *${productNotes}*${paymentInfo}`)
-                        .setColor('#0099ff');
+                    const quantityInput = new TextInputBuilder()
+                        .setCustomId('product_quantity')
+                        .setLabel('Jumlah Pembelian')
+                        .setStyle(TextInputStyle.Short)
+                        .setValue('1')
+                        .setRequired(true);
                         
-                    const row = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId('staff_delivered_product').setLabel('Mark Delivered').setStyle(ButtonStyle.Success),
-                        new ButtonBuilder().setCustomId('staff_cancel_product').setLabel('Cancel Order').setStyle(ButtonStyle.Secondary),
-                        new ButtonBuilder().setCustomId('ticket_close').setLabel('Close Ticket').setStyle(ButtonStyle.Danger)
+                    const infoInput = new TextInputBuilder()
+                        .setCustomId('product_info')
+                        .setLabel('Catatan / Username / Detail Info')
+                        .setStyle(TextInputStyle.Paragraph)
+                        .setPlaceholder('Masukkan detail pesanan atau catatan tambahan jika ada...')
+                        .setRequired(false);
+
+                    modal.addComponents(
+                        new ActionRowBuilder().addComponents(quantityInput),
+                        new ActionRowBuilder().addComponents(infoInput)
                     );
                     
-                    await channel.send({ content: `${interaction.user} | <@&1505190278003298324> <@&1517049069166526546>`, embeds: [embed], components: [row] });
-                    
-                    await interaction.editReply(`✅ Tiket pesanan berhasil dibuat! Silakan lanjutkan ke tiket: ${channel}`);
+                    return interaction.showModal(modal);
                 }
             } else if (interaction.isModalSubmit()) {
-            if (interaction.customId === 'verify_modal') {
+            if (interaction.customId.startsWith('product_buy_modal:')) {
+                const selectedProductName = interaction.customId.split(':')[1];
+                const quantityStr = interaction.fields.getTextInputValue('product_quantity');
+                const infoStr = interaction.fields.getTextInputValue('product_info') || '-';
+                const quantity = parseInt(quantityStr);
+
+                if (isNaN(quantity) || quantity <= 0) {
+                    return interaction.reply({ content: 'Jumlah pembelian harus berupa angka yang valid dan lebih dari 0.', ephemeral: true });
+                }
+
+                const Product = require('../models/Product');
+                const product = await Product.findOne({ name: selectedProductName });
+
+                if (!product || !product.active) {
+                    return interaction.reply({ content: 'Produk tidak ditemukan atau sudah tidak aktif.', ephemeral: true });
+                }
+                
+                if (product.stock < quantity) {
+                    return interaction.reply({ content: `Maaf, stok tidak cukup. Sisa stok saat ini: ${product.stock}`, ephemeral: true });
+                }
+
+                await interaction.deferReply({ ephemeral: true });
+                
+                // Reduce stock
+                product.stock -= quantity;
+                const totalPrice = product.price * quantity;
+                await product.save();
+
+                const { updateProductEmbed } = require('../services/productService');
+                await updateProductEmbed(interaction.client, interaction.guild.id);
+
+                const ticketId = `prod-${interaction.user.id.slice(-4)}-${Date.now().toString().slice(-4)}`;
+
+                const channel = await interaction.guild.channels.create({
+                    name: `order-${interaction.user.username}`,
+                    type: 0,
+                    permissionOverwrites: [
+                        { id: interaction.guild.id, deny: ['ViewChannel'] },
+                        { id: interaction.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] },
+                        { id: interaction.client.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory', 'ManageChannels'] },
+                        { id: '1505190278003298324', allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }, // Owner
+                        { id: '1517049069166526546', allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }  // Admin
+                    ],
+                });
+
+                const Ticket = require('../models/Ticket');
+                await Ticket.create({
+                    ticketId: channel.id,
+                    ownerId: interaction.user.id,
+                    category: 'product'
+                });
+                
+                const ProductOrder = require('../models/ProductOrder');
+                await ProductOrder.create({
+                    orderId: ticketId,
+                    userId: interaction.user.id,
+                    productName: `${product.name} (x${quantity})`,
+                    price: totalPrice,
+                    channelId: channel.id,
+                    status: 'pending'
+                });
+
+                // Auto notes logic
+                const nameLower = product.name.toLowerCase();
+                let productNotes = 'Akan diproses secepatnya.';
+                
+                if (nameLower.includes('bot')) {
+                    productNotes = 'Estimasi pengerjaan paling lama 3 - 7 hari.';
+                } else if (nameLower.includes('decoration') || nameLower.includes('deco')) {
+                    productNotes = 'Proses via login, paling lama bisa beberapa jam.';
+                } else if (nameLower.includes('akun') || nameLower.includes('nitro')) {
+                    productNotes = 'Proses tergantung antrian yang ada.';
+                }
+
+                const paymentInfo = `\n\n**🏦 Informasi Pembayaran:**\n• **Seabank** -> 901269725883 [Guntur]\n• **Dana** -> 082110831473 [Guntur]\n• **Gopay** -> 081519308407 [Kai]\n• **Shopepay** -> 0881080702615 [WinterStoree]\n\n_Silakan lakukan transfer sesuai dengan nominal harga pesanan Anda. Setelah itu, **kirimkan bukti pembayaran Anda di channel ini** dan jangan lupa tag Admin (<@&1517049069166526546>) atau Owner (<@&1505190278003298324>) agar pesanan segera diproses!_`;
+
+                const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+                const embed = new EmbedBuilder()
+                    .setTitle('🛒 Pesanan Produk WinterBot')
+                    .setDescription(`Halo ${interaction.user}, terima kasih banyak telah mempercayai layanan kami! ✨\nPesananmu sudah kami terima dan stok telah berhasil di-booking. Staf kami akan segera meninjau pesanan ini.\n\n**📦 Detail Pesanan:**\n• **Produk:** ${product.name} (x${quantity})\n• **Harga Satuan:** Rp ${product.price.toLocaleString('id-ID')}\n• **Total Harga:** Rp ${totalPrice.toLocaleString('id-ID')}\n• **Catatan:** ${infoStr}\n• **Status:** 🟡 Pending\n\n**📌 Notes Penting:** \n📝 *${productNotes}*${paymentInfo}`)
+                    .setColor('#0099ff');
+                    
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId('staff_delivered_product').setLabel('Mark Delivered').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId('staff_cancel_product').setLabel('Cancel Order').setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId('ticket_close').setLabel('Close Ticket').setStyle(ButtonStyle.Danger)
+                );
+                
+                await channel.send({ content: `${interaction.user} | <@&1505190278003298324> <@&1517049069166526546>`, embeds: [embed], components: [row] });
+                
+                await interaction.editReply(`✅ Tiket pesanan berhasil dibuat! Silakan lanjutkan ke tiket: ${channel}`);
+            } else if (interaction.customId.startsWith('admin_layout_modal:')) {
+                const style = interaction.customId.split(':')[1];
+                const targetGuildId = interaction.fields.getTextInputValue('target_guild_id');
+                
+                await interaction.deferReply({ ephemeral: true });
+                
+                try {
+                    const targetGuild = await interaction.client.guilds.fetch(targetGuildId).catch(() => null);
+                    if (!targetGuild) {
+                        return interaction.editReply('❌ **Gagal:** Server target tidak ditemukan atau bot tidak memiliki akses ke server tersebut.');
+                    }
+
+                    const layoutManager = require('../services/layoutManager');
+                    const { EmbedBuilder } = require('discord.js');
+                    
+                    const embed = new EmbedBuilder()
+                        .setTitle('Server Layout Update')
+                        .setDescription(`Applying the **${style.toUpperCase()}** layout style to **${targetGuild.name}**...\n\n*Please wait, this will take some time due to Discord rate limits (approx 1.5s per channel).*`)
+                        .setColor('#5865F2');
+
+                    await interaction.editReply({ embeds: [embed] });
+
+                    let lastUpdate = Date.now();
+                    const progressCallback = async (updated, total) => {
+                        const now = Date.now();
+                        if (now - lastUpdate > 5000) {
+                            lastUpdate = now;
+                            embed.setDescription(`Applying the **${style.toUpperCase()}** layout style to **${targetGuild.name}**...\n\nProgress: **${updated}** channels updated.`);
+                            await interaction.editReply({ embeds: [embed] }).catch(() => {});
+                        }
+                    };
+
+                    const result = await layoutManager.applyLayout(targetGuild, style, progressCallback);
+
+                    const finalEmbed = new EmbedBuilder()
+                        .setTitle('Server Layout Update Complete')
+                        .setDescription(`Successfully applied the **${style.toUpperCase()}** layout style to **${targetGuild.name}**.`)
+                        .addFields(
+                            { name: 'Updated Channels', value: `${result.updated}`, inline: true },
+                            { name: 'Errors', value: `${result.errors}`, inline: true }
+                        )
+                        .setColor('#57F287');
+
+                    await interaction.editReply({ embeds: [finalEmbed] });
+                } catch (error) {
+                    await interaction.followUp({ content: `An error occurred: ${error.message}`, ephemeral: true });
+                }
+            } else if (interaction.customId === 'admin_wipe_modal') {
+                await interaction.deferReply({ ephemeral: true });
+                const targetGuildId = interaction.fields.getTextInputValue('target_guild_id');
+                const confirmText = interaction.fields.getTextInputValue('confirm_wipe');
+                
+                if (confirmText !== 'WIPE') {
+                    return interaction.editReply('❌ **Konfirmasi Gagal:** Anda harus mengetik kata `WIPE` secara tepat untuk mengonfirmasi penghapusan.');
+                }
+                
+                const { wipeGuild } = require('../services/cloneService');
+                const { updateAdminPanel } = require('../services/adminService');
+                try {
+                    await interaction.editReply('⏳ Sedang menghapus seluruh isi server target (roles, channels, and categories)...');
+                    const result = await wipeGuild(interaction.client, targetGuildId);
+                    await updateAdminPanel(interaction.client);
+                    await interaction.editReply(`✅ **Server Berhasil Dibersihkan!**\n\n• Server Target: **${result.targetGuildName}**\n• Roles Deleted: **${result.rolesDeletedCount}**\n• Seluruh kategori dan channel berhasil dihapus.`);
+                } catch (error) {
+                    console.error('[Wipe Modal Error]', error);
+                    await interaction.editReply(`❌ **Pembersihan Gagal:** ${error.message}`);
+                }
+            } else if (interaction.customId.startsWith('admin_autogen_modal:')) {
+                await interaction.deferReply({ ephemeral: true });
+                const templateType = interaction.customId.split(':')[1];
+                const targetGuildId = interaction.fields.getTextInputValue('target_guild_id');
+                const { generateTemplate } = require('../services/cloneService');
+                const { updateAdminPanel } = require('../services/adminService');
+
+                try {
+                    await interaction.editReply(`⏳ Sedang menggenerasi template **${templateType}** pada server target...`);
+                    const result = await generateTemplate(interaction.client, targetGuildId, templateType);
+                    
+                    // Restore Admin Panel / Setup Wizard on target guild
+                    const targetGuild = interaction.client.guilds.cache.get(targetGuildId);
+                    if (targetGuild) {
+                        const panelInstaller = require('../modules/adminPanel/services/panelInstaller');
+                        await panelInstaller.install(targetGuild, 'base');
+                    }
+
+                    await updateAdminPanel(interaction.client);
+                    await interaction.editReply(`✅ **Generasi Server Berhasil!**\n\n• Server Target: **${result.targetGuildName}**\n• Template: **${templateType}**\n• Roles Created: **${result.rolesCreated}**\n• Categories Created: **${result.categoriesCreated}**\n• Channels Created: **${result.channelsCreated}**\n\n*Pusat Kontrol (Administration) juga telah ditambahkan ke server target.*`);
+                } catch (error) {
+                    console.error('[AutoGen Modal Error]', error);
+                    await interaction.editReply(`❌ **Generasi Gagal:** ${error.message}`);
+                }
+            } else if (interaction.customId === 'admin_clone_modal') {
+                await interaction.deferReply({ ephemeral: true });
+                const targetGuildId = interaction.fields.getTextInputValue('target_guild_id');
+                const { cloneGuild } = require('../services/cloneService');
+                const { updateAdminPanel } = require('../services/adminService');
+
+                try {
+                    await interaction.editReply('⏳ Sedang memproses kloning server (Copying roles, channels, and configs)...');
+                    const result = await cloneGuild(interaction.client, interaction.guild, targetGuildId);
+                    
+                    // Update admin panel stats
+                    await updateAdminPanel(interaction.client);
+
+                    await interaction.editReply(`✅ **Sinkronisasi / Kloning Server Berhasil!**\n\n• Server Target: **${result.targetGuildName}**\n• Roles Created: **${result.rolesCreatedCount}**\n• Categories Created: **${result.categoriesCreatedCount}**\n• Channels Created: **${result.channelsCreatedCount}**\n• Konfigurasi database & panel otomatis dideploy!`);
+                } catch (error) {
+                    console.error('[Clone Modal Error]', error);
+                    await interaction.editReply(`❌ **Sinkronisasi Gagal:** ${error.message}`);
+                }
+            } else if (interaction.customId === 'verify_modal') {
                 await interaction.deferReply({ ephemeral: true });
 
                 const robloxUsername = interaction.fields.getTextInputValue('roblox_username');
@@ -649,7 +1105,14 @@ module.exports = {
                                     .setFooter({ text: 'WinterStore • Join Event • Multi-Source Verified', iconURL: interaction.guild.iconURL() })
                                     .setColor('#2b2d31');
                                     
-                                await payoutChannel.send({ content: `<@${interaction.user.id}> telah bergabung dan diverifikasi!`, embeds: [monitorEmbed] });
+                                const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+                                const row = new ActionRowBuilder().addComponents(
+                                    new ButtonBuilder()
+                                        .setCustomId(`check_eligibility_${interaction.user.id}`)
+                                        .setLabel('🔄 Update Status Payout')
+                                        .setStyle(ButtonStyle.Primary)
+                                );
+                                await payoutChannel.send({ content: `<@${interaction.user.id}> telah bergabung dan diverifikasi!`, embeds: [monitorEmbed], components: [row] });
                             }
                         }
                     } catch (logErr) {
@@ -724,7 +1187,7 @@ module.exports = {
                     const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
                     const embed = new EmbedBuilder()
                         .setTitle('🛒 Pesanan Robux')
-                        .setDescription(`Halo ${interaction.user}, staf kami akan segera memproses pesanan Anda.\n\n**Detail Pesanan:**\n• Username Roblox: **${username}**\n• Jumlah: ${amount} R$\n• Harga: ${priceStr}\n• Status: 🟡 Pending${paymentInfo}`)
+                        .setDescription(`Halo ${interaction.user}, staf kami akan segera memproses pesanan Anda.\n\n**Detail Pesanan:**\n• Username Roblox: **${username}**\n• Jumlah: ${amount} R$\n• Harga: ${priceStr}\n• Status: 🟡 Pending\n\n⚠️ **PENTING:** Pastikan username Roblox Anda sudah benar! Kesalahan username bukan tanggung jawab admin!${paymentInfo}`)
                         .setColor('#ffff00');
                         
                     const row = new ActionRowBuilder().addComponents(

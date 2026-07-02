@@ -1,0 +1,38 @@
+{
+    "hunt": {
+        "enabled": true,
+        "priority": 10,
+        "timeout": 5000,
+        "retryPolicy": "drop"
+    },
+    "battle": {
+        "enabled": true,
+        "priority": 10,
+        "timeout": 5000,
+        "retryPolicy": "drop"
+    },
+    "daily": {
+        "enabled": true,
+        "priority": 50,
+        "timeout": 10000,
+        "retryPolicy": "retry"
+    },
+    "quest": {
+        "enabled": true,
+        "priority": 20,
+        "timeout": 5000,
+        "retryPolicy": "drop"
+    },
+    "inventory": {
+        "enabled": true,
+        "priority": 30,
+        "timeout": 5000,
+        "retryPolicy": "drop"
+    },
+    "market": {
+        "enabled": true,
+        "priority": 100,
+        "timeout": 15000,
+        "retryPolicy": "retry"
+    }
+}

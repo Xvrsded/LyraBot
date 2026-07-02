@@ -1,0 +1,18 @@
+{
+    "id": "hunt-master",
+    "title": "Raja Raccoon",
+    "description": "Berhasil memburu pet OwO sebanyak 10 kali.",
+    "category": "OwO Hunt",
+    "rarity": "Legendary",
+    "event": "owo.hunt.completed",
+    "conditions": {},
+    "target": 10,
+    "points": 100,
+    "rewards": [
+        { "type": "badge", "badge": "🦝 Raccoon Hunter" },
+        { "type": "title", "title": "Raccoon King" }
+    ],
+    "hidden": false,
+    "secret": false,
+    "repeatable": false
+}

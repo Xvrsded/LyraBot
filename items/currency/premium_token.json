@@ -1,0 +1,20 @@
+{
+    "id": "premium_token",
+    "name": "Premium Token",
+    "description": "Token premium langka. Gunakan untuk mendapatkan 1 Premium Coin secara instan.",
+    "rarity": "Legendary",
+    "category": "Currency Item",
+    "stackable": true,
+    "maxStack": 5,
+    "tradable": false,
+    "sellable": false,
+    "droppable": false,
+    "usable": true,
+    "effects": [
+        { "type": "coins", "currency": "premiumCoins", "amount": 1 }
+    ],
+    "metadata": {
+        "icon": "💎",
+        "color": "#e74c3c"
+    }
+}

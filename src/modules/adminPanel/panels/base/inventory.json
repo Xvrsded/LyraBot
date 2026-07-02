@@ -1,0 +1,10 @@
+{
+    "id": "inventory",
+    "title": "Inventory",
+    "description": "Atur item, drop tables, dan koleksi player.",
+    "icon": "🎒",
+    "permission": "ADMINISTRATOR",
+    "order": 3,
+    "visible": true,
+    "components": ["item_editor", "drop_table"]
+}

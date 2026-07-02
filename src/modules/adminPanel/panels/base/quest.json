@@ -1,0 +1,10 @@
+{
+    "id": "quest",
+    "title": "Quest System",
+    "description": "Atur misi dan quest board server.",
+    "icon": "📜",
+    "permission": "ADMINISTRATOR",
+    "order": 5,
+    "visible": true,
+    "components": []
+}

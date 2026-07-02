@@ -1,0 +1,10 @@
+{
+    "id": "parser",
+    "title": "Parser Settings",
+    "description": "Manage regex and parser configurations.",
+    "icon": "🔍",
+    "permission": "ADMINISTRATOR",
+    "order": 15,
+    "visible": true,
+    "components": []
+}

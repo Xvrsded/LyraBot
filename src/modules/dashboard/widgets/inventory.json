@@ -1,0 +1,9 @@
+{
+    "id": "inventory",
+    "title": "Inventory",
+    "icon": "🎒",
+    "description": "Item usage and drops",
+    "refresh": 60,
+    "permission": "ADMINISTRATOR",
+    "priority": 80
+}

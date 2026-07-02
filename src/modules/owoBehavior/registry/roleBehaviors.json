@@ -1,0 +1,13 @@
+{
+  "hunter": { "aliases": ["hunter", "owo-hunter", "grinder"] },
+  "trader": { "aliases": ["trader", "merchant", "broker"] },
+  "quest_master": { "aliases": ["quest master", "quester", "completionist"] },
+  "level_10": { "aliases": ["level 10", "lvl 10", "lv 10"] },
+  "level_25": { "aliases": ["level 25", "lvl 25", "lv 25"] },
+  "level_50": { "aliases": ["level 50", "lvl 50", "lv 50"] },
+  "moderator": { "aliases": ["moderator", "mod", "staff"] },
+  "admin": { "aliases": ["admin", "administrator", "manager"] },
+  "owner": { "aliases": ["owner", "founder", "creator"] },
+  "bot": { "aliases": ["bot", "bots", "system"] },
+  "support": { "aliases": ["support", "helper", "guide"] }
+}
