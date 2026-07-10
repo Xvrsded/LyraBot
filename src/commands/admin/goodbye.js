@@ -94,6 +94,10 @@ module.exports = {
                 leaveConfig.channelId = channel.id;
                 await leaveConfig.save();
 
+                // Sync with central GuildConfig
+                const configService = require('../../services/configService');
+                await configService.updateConfig(guild.id, 'channels.goodbye', channel.id);
+
                 return interaction.editReply({ content: `✅ Berhasil mengatur channel goodbye ke <#${channel.id}>. Coba /goodbye testing untuk mencoba.` });
             }
         } catch (error) {

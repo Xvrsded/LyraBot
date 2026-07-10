@@ -15,7 +15,6 @@ class InstallerEngine {
             'Behavior Mapping',
             'Configuration Center',
             'Control Center',
-            'Admin Panel',
             'Dashboard',
             'Automation',
             'Notification',
@@ -100,10 +99,7 @@ class InstallerEngine {
                 }
             }
         }
-        else if (taskName === 'Admin Panel') {
-            const panelInstaller = require('../../adminPanel/services/panelInstaller');
-            await panelInstaller.install(guild, state.selectedTemplate);
-        }
+
         else if (taskName === 'Configuration Center') {
             const configCenterManager = require('../../configurationCenter/services/configCenterManager');
             // Ensure config center default configurations are set

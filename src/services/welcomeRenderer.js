@@ -46,6 +46,10 @@ class WelcomeRenderer {
             )
             .setTimestamp();
 
+        if (config.welcomeGif) {
+            embed.setImage(config.welcomeGif);
+        }
+
         return {
             content: `<@${member.id}>`,
             embeds: [embed]

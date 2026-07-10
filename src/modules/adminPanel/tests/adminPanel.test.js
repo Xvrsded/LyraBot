@@ -122,7 +122,7 @@ async function runTests() {
 
     await test('19. Metadata: JSON files are valid format', () => {
         const files = fs.readdirSync(path.join(__dirname, '../panels/base'));
-        assert.strictEqual(files.length, 9);
+        assert.strictEqual(files.length, 21);
     });
 
     await test('20. Metadata: Configuration exists', () => {
@@ -159,7 +159,7 @@ async function runTests() {
         const res = await panelGenerator.generateMainPanel(mockGuild, mockMemberAdmin);
         let found = false;
         res.components.forEach(row => row.components.forEach(c => {
-            if (c.data.custom_id === 'ui:admin_panel:nav:hidden1') found = true;
+            if (c.data.custom_id === 'ui:hidden1:open:index') found = true;
         }));
         assert.strictEqual(found, false);
     });
@@ -169,7 +169,7 @@ async function runTests() {
         const res = await panelGenerator.generateMainPanel(mockGuild, mockMemberUser);
         let foundEconomy = false;
         res.components.forEach(row => row.components.forEach(c => {
-            if (c.data.custom_id === 'ui:admin_panel:nav:economy') foundEconomy = true;
+            if (c.data.custom_id === 'ui:economy:open:index') foundEconomy = true;
         }));
         assert.strictEqual(foundEconomy, false);
     });
@@ -179,7 +179,7 @@ async function runTests() {
         const res = await panelGenerator.generateMainPanel(mockGuild, mockMemberAdmin);
         let foundEconomy = false;
         res.components.forEach(row => row.components.forEach(c => {
-            if (c.data.custom_id === 'ui:admin_panel:nav:economy') foundEconomy = true;
+            if (c.data.custom_id === 'ui:economy:open:index') foundEconomy = true;
         }));
         assert.strictEqual(foundEconomy, true);
     });
@@ -371,14 +371,14 @@ async function runTests() {
         assert.strictEqual(panelPermission.hasPermission(mockMemberAdmin, 'MODERATOR'), false);
     });
 
-    await test('50. Manager Hook test: setup.completed', async () => {
+    await test('50. Manager Hook test: setup.completed (removed)', async () => {
         let installed = false;
         panelInstaller.install = async () => { installed = true; return true; };
         const eventBus = require('../../../services/eventBus');
         
         eventBus.emit('setup.completed', { guildId: 'g8', templateId: 'base' });
         await new Promise(r => setTimeout(r, 50));
-        assert.strictEqual(installed, true);
+        assert.strictEqual(installed, false);
     });
 
     console.log(`\nResults: ${passed} passed, ${failed} failed.`);

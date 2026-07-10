@@ -24,6 +24,7 @@ const RolesSchema = new mongoose.Schema({
 const WelcomeSubSchema = new mongoose.Schema({
     enabled: { type: Boolean, default: false },
     message: { type: String, default: '🎉 **Welcome to our community, {user}!**' },
+    welcomeGif: { type: String, default: null },
     embed: { type: Boolean, default: true },
     autoRole: { type: String, default: null },
     verificationMode: { type: String, default: 'None' },

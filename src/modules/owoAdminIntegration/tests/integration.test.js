@@ -88,8 +88,8 @@ async function runTests() {
         adminIntegrationManager.init(mockClient);
         assert.strictEqual(adminIntegrationManager.initialized, true);
     });
-    await test('2. Manager: Init bounds setup.completed', () => {
-        assert.ok(subs['setup.completed']);
+    await test('2. Manager: Init does not bind setup.completed', () => {
+        assert.ok(!subs['setup.completed']);
     });
     await test('3. Manager: Exposes Plugin API', () => {
         const api = adminIntegrationManager.getPluginApi();

@@ -40,14 +40,6 @@ class AdminPanelManager {
             panelRecovery.scanAndRecover(client);
         }, 'adminPanel');
 
-        // Hook into SetupEngine completion
-        eventBus.subscribe('setup.completed', async ({ guildId, templateId }) => {
-            const guild = await client.guilds.fetch(guildId).catch(() => null);
-            if (guild) {
-                await panelInstaller.install(guild, templateId);
-            }
-        }, 'adminPanel');
-
         this.initialized = true;
         logger.info('[AdminPanelManager] Enterprise Dynamic Admin Panel Generator initialized.');
     }

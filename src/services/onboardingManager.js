@@ -41,7 +41,10 @@ class OnboardingManager {
         // 4. Send Welcome Message
         const welcomeEnabled = config.welcome?.enabled;
         const welcomeChannelId = config.channels?.welcome;
-        const welcomeChannel = member.guild.channels.cache.get(welcomeChannelId);
+        let welcomeChannel = null;
+        if (welcomeChannelId) {
+            welcomeChannel = await member.guild.channels.fetch(welcomeChannelId).catch(() => null);
+        }
 
         if (welcomeEnabled && welcomeChannel) {
             const welcomePayload = welcomeRenderer.renderWelcomePayload(member, config.welcome);
@@ -61,7 +64,10 @@ class OnboardingManager {
         } else if (mode === 'Button') {
             // Send verify button in welcome channel (or general verify channel)
             const verifyChannelId = config.channels?.verify || welcomeChannelId;
-            const verifyChannel = member.guild.channels.cache.get(verifyChannelId);
+            let verifyChannel = null;
+            if (verifyChannelId) {
+                verifyChannel = await member.guild.channels.fetch(verifyChannelId).catch(() => null);
+            }
             if (verifyChannel) {
                 const embed = new EmbedBuilder()
                     .setTitle('🔒 Verifikasi Anggota Baru')
@@ -88,7 +94,10 @@ class OnboardingManager {
             }
         } else if (mode === 'Captcha') {
             const verifyChannelId = config.channels?.verify || welcomeChannelId;
-            const verifyChannel = member.guild.channels.cache.get(verifyChannelId);
+            let verifyChannel = null;
+            if (verifyChannelId) {
+                verifyChannel = await member.guild.channels.fetch(verifyChannelId).catch(() => null);
+            }
             if (verifyChannel) {
                 const embed = new EmbedBuilder()
                     .setTitle('🧩 Captcha Verification Required')

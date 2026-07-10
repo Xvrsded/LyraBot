@@ -9,16 +9,10 @@ class PanelOrchestrator {
         this.initialized = false;
         this.client = null;
     }
-
     init(client) {
         if (this.initialized) return;
         this.client = client;
         logger.info('[OwOAdminIntegration] Initializing Persistent Admin Panel...');
-
-        eventBus.subscribe('setup.completed', async ({ guildId }) => {
-            await this.deployPanel(guildId);
-        });
-
         this.initialized = true;
     }
 

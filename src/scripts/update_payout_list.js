@@ -45,11 +45,11 @@ function startLivePayoutList(client) {
             // Hapus fetch semua member untuk menghindari Rate Limit (Opcode 8)
             // const members = await guild.members.fetch();
 
-            let eligibleText = "";
-            let notEligibleText = "";
-            
             let eligibleCount = 0;
             let notEligibleCount = 0;
+
+            const eligibleEntries = [];
+            const notEligibleEntries = [];
 
             for (const dbUser of verifiedUsers) {
                 // Fetch member satu per satu jika tidak ada di cache
@@ -70,13 +70,47 @@ function startLivePayoutList(client) {
 
                 if (diffDays >= 14) {
                     // ANSI Blue color format using escape code
-                    eligibleText += `\u001b[2;34m✅ ${displayUsername} \u001b[0m\n`;
+                    eligibleEntries.push(`\u001b[2;34m✅ ${displayUsername} \u001b[0m`);
                     eligibleCount++;
                 } else {
                     const daysLeft = 14 - diffDays;
-                    notEligibleText += `❌ ${displayUsername} (Kurang ${daysLeft} hari)\n`;
+                    notEligibleEntries.push(`❌ ${displayUsername} (Kurang ${daysLeft} hari)`);
                     notEligibleCount++;
                 }
+            }
+
+            // Build eligibleText within field limit (1024 characters including formatting code block tags)
+            let eligibleText = '';
+            let eligibleTruncated = false;
+            let eligibleShown = 0;
+            for (const entry of eligibleEntries) {
+                // format: ```ansi\n<eligibleText><entry>\n``` -> length is: 11 + eligibleText.length + entry.length + 1
+                if (12 + eligibleText.length + entry.length > 950) {
+                    eligibleTruncated = true;
+                    break;
+                }
+                eligibleText += entry + '\n';
+                eligibleShown++;
+            }
+            if (eligibleTruncated) {
+                eligibleText += `... dan ${eligibleCount - eligibleShown} member lainnya`;
+            }
+
+            // Build notEligibleText within field limit
+            let notEligibleText = '';
+            let notEligibleTruncated = false;
+            let notEligibleShown = 0;
+            for (const entry of notEligibleEntries) {
+                // format: ```\n<notEligibleText><entry>\n``` -> length is: 8 + notEligibleText.length + entry.length + 1
+                if (9 + notEligibleText.length + entry.length > 950) {
+                    notEligibleTruncated = true;
+                    break;
+                }
+                notEligibleText += entry + '\n';
+                notEligibleShown++;
+            }
+            if (notEligibleTruncated) {
+                notEligibleText += `... dan ${notEligibleCount - notEligibleShown} member lainnya`;
             }
 
             // Susun Embed

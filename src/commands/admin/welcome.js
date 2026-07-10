@@ -106,6 +106,10 @@ module.exports = {
                 config.channelId = channel.id;
                 await config.save();
 
+                // Sync with central GuildConfig
+                const configService = require('../../services/configService');
+                await configService.updateConfig(guild.id, 'channels.welcome', channel.id);
+
                 return interaction.editReply({ content: `✅ Welcome channel has been set to ${channel}.` });
             }
 
@@ -113,6 +117,10 @@ module.exports = {
                 const text = interaction.options.getString('text');
                 config.message = text;
                 await config.save();
+
+                // Sync with central GuildConfig
+                const configService = require('../../services/configService');
+                await configService.updateConfig(guild.id, 'welcome.message', text);
 
                 return interaction.editReply({ content: `✅ Welcome message has been updated.\nPreview:\n${text}` });
             }
@@ -125,6 +133,10 @@ module.exports = {
                 }
                 config.welcomeGif = url;
                 await config.save();
+
+                // Sync with central GuildConfig
+                const configService = require('../../services/configService');
+                await configService.updateConfig(guild.id, 'welcome.welcomeGif', url);
 
                 return interaction.editReply({ content: `✅ Welcome GIF has been updated.` });
             }
@@ -141,6 +153,10 @@ module.exports = {
                 config.autoRole = role.id;
                 await config.save();
 
+                // Sync with central GuildConfig
+                const configService = require('../../services/configService');
+                await configService.updateConfig(guild.id, 'welcome.autoRole', role.id);
+
                 return interaction.editReply({ content: `✅ Auto-role has been set to ${role}.` });
             }
 
@@ -148,6 +164,10 @@ module.exports = {
                 const state = interaction.options.getBoolean('state');
                 config.enabled = state;
                 await config.save();
+
+                // Sync with central GuildConfig
+                const configService = require('../../services/configService');
+                await configService.updateConfig(guild.id, 'welcome.enabled', state);
 
                 return interaction.editReply({ content: `✅ Welcome system has been turned ${state ? '**ON**' : '**OFF**'}.` });
             }

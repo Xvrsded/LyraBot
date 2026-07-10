@@ -966,13 +966,6 @@ module.exports = {
                 try {
                     await interaction.editReply(`⏳ Sedang menggenerasi template **${templateType}** pada server target...`);
                     const result = await generateTemplate(interaction.client, targetGuildId, templateType);
-                    
-                    // Restore Admin Panel / Setup Wizard on target guild
-                    const targetGuild = interaction.client.guilds.cache.get(targetGuildId);
-                    if (targetGuild) {
-                        const panelInstaller = require('../modules/adminPanel/services/panelInstaller');
-                        await panelInstaller.install(targetGuild, 'base');
-                    }
 
                     await updateAdminPanel(interaction.client);
                     await interaction.editReply(`✅ **Generasi Server Berhasil!**\n\n• Server Target: **${result.targetGuildName}**\n• Template: **${templateType}**\n• Roles Created: **${result.rolesCreated}**\n• Categories Created: **${result.categoriesCreated}**\n• Channels Created: **${result.channelsCreated}**\n\n*Pusat Kontrol (Administration) juga telah ditambahkan ke server target.*`);

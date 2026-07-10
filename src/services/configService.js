@@ -9,9 +9,38 @@ class ConfigService {
      * @returns {Promise<Document>}
      */
     async create(guildId) {
-        const config = await GuildConfig.create({ guildId });
+        // Query existing legacy configurations if any exist to import them
+        const WelcomeConfig = require('../models/WelcomeConfig');
+        const LeaveConfig = require('../models/LeaveConfig');
+
+        const [welcomeConfig, leaveConfig] = await Promise.all([
+            WelcomeConfig.findOne({ guildId }).lean().catch(() => null),
+            LeaveConfig.findOne({ guildId }).lean().catch(() => null)
+        ]);
+
+        const welcomeData = {};
+        const channelsData = {};
+
+        if (welcomeConfig) {
+            welcomeData.enabled = welcomeConfig.enabled;
+            if (welcomeConfig.message) welcomeData.message = welcomeConfig.message;
+            if (welcomeConfig.welcomeGif) welcomeData.welcomeGif = welcomeConfig.welcomeGif;
+            if (welcomeConfig.autoRole) welcomeData.autoRole = welcomeConfig.autoRole;
+            if (welcomeConfig.channelId) channelsData.welcome = welcomeConfig.channelId;
+        }
+
+        if (leaveConfig) {
+            if (leaveConfig.channelId) channelsData.goodbye = leaveConfig.channelId;
+        }
+
+        const config = await GuildConfig.create({
+            guildId,
+            welcome: Object.keys(welcomeData).length > 0 ? welcomeData : undefined,
+            channels: Object.keys(channelsData).length > 0 ? channelsData : undefined
+        });
+
         cacheProvider.set(guildId, config);
-        logger.info(`[ConfigService] Initialized default GuildConfig for ${guildId}`);
+        logger.info(`[ConfigService] Initialized default GuildConfig for ${guildId} (imported legacy configs)`);
         return config;
     }
 

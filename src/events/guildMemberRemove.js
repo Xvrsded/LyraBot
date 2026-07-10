@@ -20,27 +20,34 @@ module.exports = {
 
             const leaveConfig = await LeaveConfig.findOne({ guildId: member.guild.id });
             if (leaveConfig && leaveConfig.channelId) {
-                targetChannel = member.guild.channels.cache.get(leaveConfig.channelId);
+                targetChannel = await member.guild.channels.fetch(leaveConfig.channelId).catch(() => null);
             }
 
             if (!targetChannel) {
-                targetChannel = member.guild.channels.cache.find(c => 
-                    c.name.toLowerCase().includes('goodbye') || 
-                    c.name.toLowerCase().includes('leave') ||
-                    c.name.toLowerCase().includes('keluar') ||
-                    c.name.toLowerCase().includes('out')
-                );
+                try {
+                    const channels = await member.guild.channels.fetch();
+                    targetChannel = channels.find(c => 
+                        c.name.toLowerCase().includes('goodbye') || 
+                        c.name.toLowerCase().includes('leave') ||
+                        c.name.toLowerCase().includes('keluar') ||
+                        c.name.toLowerCase().includes('out')
+                    );
+                } catch (fetchErr) {
+                    logger.error('[Events: GuildMemberRemove] Failed to fetch channels for fallback search:', fetchErr);
+                }
             }
 
             if (!targetChannel) {
                 const welcomeConfig = await WelcomeConfig.findOne({ guildId: member.guild.id });
                 if (welcomeConfig && welcomeConfig.channelId) {
-                    targetChannel = member.guild.channels.cache.get(welcomeConfig.channelId);
+                    targetChannel = await member.guild.channels.fetch(welcomeConfig.channelId).catch(() => null);
                 }
             }
 
             if (targetChannel) {
-                let messageContent = `🍂 **Yahhh, ada yang pergi dari {server} nih...** 🍂\n\nSelamat jalan, **{username}**! 👋 Makasih banyak ya udah pernah mampir dan ikut ngeramein komunitas kita.\n\nHati-hati di jalan, semoga sukses terus di luaran sana! See ya! ✨`;
+                let messageContent = (leaveConfig && leaveConfig.message) 
+                    ? leaveConfig.message 
+                    : `🍂 **Yahhh, ada yang pergi dari {server} nih...** 🍂\n\nSelamat jalan, **{username}**! 👋 Makasih banyak ya udah pernah mampir dan ikut ngeramein komunitas kita.\n\nHati-hati di jalan, semoga sukses terus di luaran sana! See ya! ✨`;
                 
                 messageContent = messageContent
                     .replace(/{user}/g, `<@${member.id}>`)
@@ -52,6 +59,10 @@ module.exports = {
                     .setColor('#ff0000')
                     .setDescription(messageContent)
                     .setTimestamp();
+
+                if (leaveConfig && leaveConfig.leaveGif) {
+                    embed.setImage(leaveConfig.leaveGif);
+                }
 
                 const payload = { content: `**${member.user.username}** telah meninggalkan server.`, embeds: [embed] };
 

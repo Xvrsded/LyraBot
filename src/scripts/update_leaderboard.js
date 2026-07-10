@@ -160,12 +160,17 @@ function startLiveLeaderboard(client) {
                               `├ 💵 **Total Volume Belanja:** \`Rp ${totalSpent.toLocaleString('id-ID')}\`\n` +
                               `└ 📦 **Total Order Selesai:** \`${totalOrders}x\``;
 
+            // Description has a 4096-character limit, whereas fields have a 1024-character limit.
+            // Putting leaderboardText inside description avoids CombinedPropertyError length constraint crashes.
             const embed = new EmbedBuilder()
                 .setTitle('🏆 WinterStore - Robux & Product Leaderboard')
-                .setDescription('Daftar pembeli dengan total nominal belanja terbanyak di WinterStore.')
+                .setDescription(
+                    'Daftar pembeli dengan total nominal belanja terbanyak di WinterStore.\n\n' +
+                    '**🏆 Top Buyers (All-Time)**\n' +
+                    leaderboardText
+                )
                 .setColor('#0099ff')
                 .addFields(
-                    { name: '🏆 Top Buyers (All-Time)', value: leaderboardText, inline: false },
                     { name: '📊 Akumulasi Server (All-Time)', value: statsText, inline: false }
                 )
                 .setFooter({ text: 'WinterStore Leaderboard System' })
