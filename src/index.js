@@ -49,7 +49,7 @@ require('./utils/mongooseInstrumentation').instrument();
 console.log('[BOOT] Connecting MongoDB...');
 
 // Connect to MongoDB
-mongoose.connect(process.env.MONGO_URI)
+mongoose.connect(process.env.MONGO_URI, { family: 4, serverSelectionTimeoutMS: 60000 })
     .then(async () => {
         console.log('[BOOT] MongoDB connected.');
         try {
