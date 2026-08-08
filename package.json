@@ -3,8 +3,10 @@
   "version": "1.0.0",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
+    "bot": "node src/index.js",
     "dev": "node src/index.js",
+    "build": "echo \"No build required\"",
+    "deploy": "echo \"Deployment handled during startup\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -15,20 +17,11 @@
     "@napi-rs/canvas": "^1.0.0",
     "axios": "^1.18.1",
     "canvas": "^3.2.3",
-    "cookie-parser": "^1.4.7",
-    "cors": "^2.8.6",
     "discord.js": "^14.26.4",
     "dotenv": "^17.4.2",
-    "express": "^5.2.1",
-    "express-rate-limit": "^8.5.2",
-    "helmet": "^8.2.0",
-    "jsonwebtoken": "^9.0.3",
     "mongodb": "^6.21.0",
     "mongoose": "^8.24.0",
-    "multer": "^2.2.0",
     "noblox.js": "^9.0.0",
-    "node-cron": "^4.5.0",
-    "socket.io": "^4.8.3",
-    "socket.io-client": "^4.8.3"
+    "node-cron": "^4.5.0"
   }
 }

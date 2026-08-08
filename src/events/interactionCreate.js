@@ -324,6 +324,7 @@ async function createTicketFromSession(interaction, session, client) {
 module.exports = {
     name: Events.InteractionCreate,
     async execute(interaction, client) {
+        try {
         // Handle Slash Commands
         if (interaction.isChatInputCommand()) {
             const command = client.commands.get(interaction.commandName);
@@ -3450,6 +3451,19 @@ module.exports = {
 
                 return await interaction.showModal(modal);
             }
+        }
+        } catch (error) {
+            console.error('[Interaction Error] Unhandled interaction error:', error);
+            const replyOpts = { content: '❌ Terjadi kesalahan sistem saat memproses permintaan Anda.', ephemeral: true };
+            try {
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply(replyOpts).catch(() => {});
+                } else if (interaction.deferred) {
+                    await interaction.editReply(replyOpts).catch(() => {});
+                } else {
+                    await interaction.followUp(replyOpts).catch(() => {});
+                }
+            } catch (e) {}
         }
     }
 };

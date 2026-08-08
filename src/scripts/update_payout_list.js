@@ -45,6 +45,13 @@ function startLivePayoutList(client) {
             // Hapus fetch semua member untuk menghindari Rate Limit (Opcode 8)
             // const members = await guild.members.fetch();
 
+            // Bulk fetch in chunks to avoid REST queue freezing and Gateway Opcode 8
+            const userIds = verifiedUsers.map(u => u.discordId);
+            for (let i = 0; i < userIds.length; i += 100) {
+                const chunk = userIds.slice(i, i + 100);
+                await guild.members.fetch({ user: chunk }).catch(() => {});
+            }
+
             let eligibleCount = 0;
             let notEligibleCount = 0;
 
@@ -52,14 +59,11 @@ function startLivePayoutList(client) {
             const notEligibleEntries = [];
 
             for (const dbUser of verifiedUsers) {
-                // Fetch member satu per satu jika tidak ada di cache
-                let member = guild.members.cache.get(dbUser.discordId);
-                if (!member) {
-                    member = await guild.members.fetch(dbUser.discordId).catch(() => null);
-                }
+                // Gunakan cache karena sudah di-bulk fetch sebelumnya
+                const member = guild.members.cache.get(dbUser.discordId);
                 
-                // Kita tetap biarkan skip jika left server agar hadiah tidak diberikan ke orang yang sudah leave discord.
-                if (!member) continue; 
+                // Kita tetap biarkan skip jika left server
+                if (!member) continue;
 
                 const joinedAt = dbUser.createdAt; // Dihitung sejak verifikasi, mewakili join community
                 const diffTime = Math.abs(new Date() - joinedAt);

@@ -19,12 +19,16 @@ function startEligibilityChecker(client) {
                     // Hapus fetch seluruh member
                     // const members = await guild.members.fetch();
                     const usersToCheck = await User.find({ eligibleForPayout: false, verified: true });
+                    
+                    // Bulk fetch to avoid REST queue freezing
+                    const userIds = usersToCheck.map(u => u.discordId);
+                    for (let i = 0; i < userIds.length; i += 100) {
+                        const chunk = userIds.slice(i, i + 100);
+                        await guild.members.fetch({ user: chunk }).catch(() => {});
+                    }
 
                     for (const dbUser of usersToCheck) {
-                        let member = guild.members.cache.get(dbUser.discordId);
-                        if (!member) {
-                            member = await guild.members.fetch(dbUser.discordId).catch(() => null);
-                        }
+                        const member = guild.members.cache.get(dbUser.discordId);
                         if (!member) continue;
 
                         const joinedAt = dbUser.createdAt; // Dihitung sejak verifikasi, mewakili join community

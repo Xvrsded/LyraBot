@@ -36,7 +36,7 @@ async function loadCommands(client) {
     const rest = new REST().setToken(process.env.TOKEN);
 
     try {
-        console.log(`Started refreshing ${commands.length} application (/) commands.`);
+        console.log(`[BOOT] Started refreshing ${commands.length} application (/) commands.`);
 
         // Register to specific guild for development if GUILD_ID is provided, else globally
         if (process.env.GUILD_ID) {
@@ -44,13 +44,13 @@ async function loadCommands(client) {
                 Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
                 { body: commands },
             );
-            console.log(`Successfully reloaded ${commands.length} guild (/) commands.`);
+            console.log(`[BOOT] Successfully reloaded ${commands.length} guild (/) commands.`);
         } else {
             await rest.put(
                 Routes.applicationCommands(process.env.CLIENT_ID),
                 { body: commands },
             );
-            console.log(`Successfully reloaded ${commands.length} global (/) commands.`);
+            console.log(`[BOOT] Successfully reloaded ${commands.length} global (/) commands.`);
         }
     } catch (error) {
         console.error(error);

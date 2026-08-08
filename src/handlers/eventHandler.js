@@ -16,7 +16,7 @@ function loadEvents(client) {
             client.on(event.name, (...args) => event.execute(...args, client));
         }
     }
-    console.log(`✅ Loaded ${eventFiles.length} events`);
+    console.log(`[BOOT] Loaded ${eventFiles.length} events.`);
 }
 
 module.exports = { loadEvents };
