@@ -811,7 +811,7 @@ module.exports = {
                     await dashboardService.syncDashboard(interaction.client);
                     
                     await interaction.editReply({
-                        content: `🔄 **Server Refresh**\n\n✅ Configuration synced\n✅ Product Panels synced\n✅ Voice Status synced\n✅ Store Status synced\n\nRefresh completed successfully. Bot process is restarting to apply changes cleanly.`
+                        content: `🔄 **Server Refresh**\n\n✅ Configuration synced\n✅ Product Panels synced\n✅ Voice Status synced\n✅ Store Status synced\n\nRefresh completed successfully. Bot process is shutting down to clear memory. **(Pastikan bot dijalankan menggunakan PM2 agar otomatis hidup kembali)**`
                     });
 
                     // Trigger process restart to clear memory and node instances
