@@ -1,5 +1,4 @@
 <div align="center">
-  <img src="Public/QR Payment.jpg" alt="LyraBlox Banner" width="600" />
 
   # 🌟 LyraBot
 
