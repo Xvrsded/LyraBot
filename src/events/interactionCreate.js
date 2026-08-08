@@ -1492,9 +1492,11 @@ module.exports = {
                             { $set: { status: 'success' } }
                         );
                         
-                        const allOrders = [order, ...pendingOrders];
-                        const totalPrice = allOrders.reduce((sum, o) => sum + o.price, 0);
-                        let totalRobux = allOrders.reduce((sum, o) => {
+                        // We must find ALL orders in this ticket, including the one we just updated to 'success', to get the absolute correct total
+                        const allOrdersInTicket = await Order.find({ channelId: interaction.channel.id, status: 'success' });
+                        
+                        const totalPrice = allOrdersInTicket.reduce((sum, o) => sum + o.price, 0);
+                        let totalRobux = allOrdersInTicket.reduce((sum, o) => {
                             let amt = 0;
                             if (o.details) {
                                 const pKey = Object.keys(o.details).find(k => k.toLowerCase().includes('amount') || k.toLowerCase().includes('qty') || k.toLowerCase().includes('paket') || k.toLowerCase().includes('robux'));
@@ -1508,8 +1510,11 @@ module.exports = {
                         
                         order.price = totalPrice;
                         if (order.details) {
-                            const pKey = Object.keys(order.details).find(k => k.toLowerCase().includes('amount') || k.toLowerCase().includes('qty') || k.toLowerCase().includes('paket') || k.toLowerCase().includes('robux'));
-                            if (pKey) order.details[pKey] = `${totalRobux} Robux`;
+                            order.details.amount = totalRobux;
+                            
+                            // Also update the specific pKey if it was something else, but ensure amount is definitely set
+                            const pKey = Object.keys(order.details).find(k => k.toLowerCase().includes('paket') || k.toLowerCase().includes('qty'));
+                            if (pKey && pKey !== 'amount') order.details[pKey] = totalRobux;
                         }
                     }
  
@@ -2334,6 +2339,7 @@ module.exports = {
                         rounding: 0,
                         status: 'pending',
                         channelId: activeTicket.ticketId,
+                        snapshot: { price: session.price, amount: session.amount, rate: session.rate },
                         details: session.type === 'gig' ? {
                             gameLink: session.gameLink,
                             gamepassName: session.gamepassName,
@@ -2386,7 +2392,21 @@ module.exports = {
                                 if (oldEmbed.fields && oldEmbed.fields.length > 0) {
                                     const updatedFields = [...oldEmbed.fields];
                                     
-                                    // Identify where the "Total Pembayaran" field is
+                                    for (let i = 0; i < updatedFields.length; i++) {
+                                        const fname = updatedFields[i].name.toLowerCase();
+                                        if (fname.includes('paket') || fname.includes('jumlah robux') || fname.includes('harga gamepass') || fname.includes('jumlah')) {
+                                            if (updatedFields[i].value.includes('Custom')) {
+                                                // Keep it as custom or update if needed
+                                            } else {
+                                                updatedFields[i].value = `\`${newAmount.toLocaleString('id-ID')} Robux\``;
+                                            }
+                                        }
+                                        if (fname.includes('total') || fname.includes('pembayaran')) {
+                                            updatedFields[i].value = `\`Rp ${newTotal.toLocaleString('id-ID')}\``;
+                                        }
+                                    }
+
+                                    // Identify where the "Total Pembayaran" or "Total" field is
                                     const totalFieldIndex = updatedFields.findIndex(f => f.name.toLowerCase().includes('total'));
                                     
                                     // Construct the new order field
@@ -2394,16 +2414,11 @@ module.exports = {
                                     let packageLabel = session.isCustom ? 'Custom' : `${session.amount} Robux`;
                                     const newOrderField = {
                                         name: `📦 Tambahan: ${productName}`,
-                                        value: `**Username:** \`${session.robloxUsername}\`\n**Paket:** \`${packageLabel}\`\n**Harga:** \`Rp ${session.price.toLocaleString('id-ID')}\``,
+                                        value: `**Username:** \`${session.robloxUsername || '-'}\`\n**Paket:** \`${packageLabel}\`\n**Harga:** \`Rp ${session.price.toLocaleString('id-ID')}\``,
                                         inline: false
                                     };
                                     
                                     if (totalFieldIndex !== -1) {
-                                        // Update the total field
-                                        updatedFields[totalFieldIndex] = {
-                                            ...updatedFields[totalFieldIndex],
-                                            value: `\`Rp ${newTotal.toLocaleString('id-ID')}\``
-                                        };
                                         // Insert the new order before the total field
                                         updatedFields.splice(totalFieldIndex, 0, newOrderField);
                                     } else {
