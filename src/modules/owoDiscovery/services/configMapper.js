@@ -13,12 +13,14 @@ class ConfigMapper {
      */
     async map(guildId, key, id, entityName) {
         try {
-            const existing = await configService.get(guildId, key);
+            const config = await configService.getConfig(guildId);
+            const existing = config.get ? config.get(key) : null;
+            
             // Overwrite Policy: If already exists and is different, we overwrite 
             // since the discovery engine found the "best match" based on templates.
             if (existing === id) return false; // Already mapped correctly
 
-            await configService.set(guildId, key, id);
+            await configService.updateConfig(guildId, key, id);
             
             logger.info(`[ConfigMapper] Mapped ${key} to ${entityName} (${id}) in guild ${guildId}`);
             
@@ -34,15 +36,13 @@ class ConfigMapper {
         }
     }
 
-    /**
-     * Unmaps a key (used when a channel is deleted).
-     */
     async unmap(guildId, key) {
         try {
-            const existing = await configService.get(guildId, key);
+            const config = await configService.getConfig(guildId);
+            const existing = config.get ? config.get(key) : null;
             if (!existing) return false;
 
-            await configService.delete(guildId, key);
+            await configService.updateConfig(guildId, key, null);
             logger.info(`[ConfigMapper] Unmapped ${key} in guild ${guildId}`);
             
             if (auditLogger.audit) {

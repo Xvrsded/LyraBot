@@ -80,8 +80,8 @@ loadCommands(client).then(() => {
     console.log('[BOOT] Commands synchronized.');
 });
 
-console.log('[DISCORD] Logging in...');
-client.login(process.env.TOKEN).then(() => {
+client.once('ready', () => {
+    logger.setClient(client);
     console.log(`[DISCORD] Logged in as ${client.user.tag}`);
     console.log('[READY] LyraBot is ready.');
 
@@ -90,7 +90,10 @@ client.login(process.env.TOKEN).then(() => {
     startLivePayoutList(client);
     startLiveLeaderboard(client);
     startServerStatsTracker(client);
-}).catch((err) => {
+});
+
+console.log('[DISCORD] Logging in...');
+client.login(process.env.TOKEN).catch((err) => {
     console.error('[ERROR] Failed to login to Discord:', err);
     process.exit(1);
 });
