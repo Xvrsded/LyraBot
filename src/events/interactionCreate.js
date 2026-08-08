@@ -811,13 +811,8 @@ module.exports = {
                     await dashboardService.syncDashboard(interaction.client);
                     
                     await interaction.editReply({
-                        content: `🔄 **Server Refresh**\n\n✅ Configuration synced\n✅ Product Panels synced\n✅ Voice Status synced\n✅ Store Status synced\n\nRefresh completed successfully. Bot process is shutting down to clear memory. **(Pastikan bot dijalankan menggunakan PM2 agar otomatis hidup kembali)**`
+                        content: `🔄 **Server Refresh**\n\n✅ Configuration synced\n✅ Product Panels synced\n✅ Voice Status synced\n✅ Store Status synced\n\nRefresh completed successfully. Bot tetap online tanpa perlu restart.`
                     });
-
-                    // Trigger process restart to clear memory and node instances
-                    setTimeout(() => {
-                        process.exit(0);
-                    }, 2000);
                 } catch (err) {
                     const logger = require('../utils/logger');
                     logger.error('[Dashboard] Error during server refresh:', err);
