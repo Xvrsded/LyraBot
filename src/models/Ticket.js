@@ -1,10 +1,12 @@
 const mongoose = require('mongoose');
 
 const TicketSchema = new mongoose.Schema({
-    ticketId: { type: String, required: true, unique: true },
+    ticketId: { type: String, required: true, unique: true }, // Channel ID
     ownerId: { type: String, required: true },
-    category: { type: String, required: true }, // Support, Order, Custom UGC, Report
-    status: { type: String, default: 'open' }, // open, closed
+    productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', default: null },
+    productName: { type: String, default: '' },
+    orderId: { type: String, default: null }, // Associated Order ID (LB-XXXXXX)
+    status: { type: String, enum: ['open', 'closed'], default: 'open' },
     createdAt: { type: Date, default: Date.now }
 });
 

@@ -1,39 +1,336 @@
-const { Events } = require('discord.js');
-const interactionRouter = require('../handlers/interactionRouter');
+const { Events, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
+const Product = require('../models/Product');
+const Ticket = require('../models/Ticket');
+const Order = require('../models/Order');
+const CopayEligibility = require('../models/CopayEligibility');
+const ReviewStats = require('../models/ReviewStats');
+const RobuxPackage = require('../models/RobuxPackage');
+const settingsService = require('../services/settingsService');
+const logger = require('../utils/logger');
+const noblox = require('noblox.js');
+const { getRobloxUserInfo } = require('../services/robloxService');
+const { getStoreSetting, buildDashboardMessage } = require('../services/storeService');
+const activeClosures = new Set();
 
+function buildReviewPanel(orderId) {
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`vouch_star_1_${orderId}`).setLabel('⭐').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`vouch_star_2_${orderId}`).setLabel('⭐⭐').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`vouch_star_3_${orderId}`).setLabel('⭐⭐⭐').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`vouch_star_4_${orderId}`).setLabel('⭐⭐⭐⭐').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`vouch_star_5_${orderId}`).setLabel('⭐⭐⭐⭐⭐').setStyle(ButtonStyle.Secondary)
+    );
+    const embed = new EmbedBuilder()
+        .setTitle('⭐ Berikan Penilaian')
+        .setDescription('Bagaimana pengalaman Anda berbelanja di LyraBlox?\n\nSilakan berikan rating Anda di bawah ini! 💖')
+        .setColor('#ffd700');
+    return { embeds: [embed], components: [row] };
+}
+
+async function createTicketFromSession(interaction, session, client) {
+    try {
+        // Sequential Order ID (Safe against deletions)
+        const lastOrder = await Order.findOne().sort({ _id: -1 });
+        let nextNumber = 1;
+        if (lastOrder && lastOrder.orderId) {
+            const match = lastOrder.orderId.match(/\d+/);
+            if (match) nextNumber = parseInt(match[0], 10) + 1;
+        }
+        
+        // Ensure uniqueness by checking if the generated ID already exists (in case of race conditions)
+        let orderId = `LB-${String(nextNumber).padStart(6, '0')}`;
+        while (await Order.exists({ orderId })) {
+            nextNumber++;
+            orderId = `LB-${String(nextNumber).padStart(6, '0')}`;
+        }
+
+        // Determine Category
+        const categoryKey = session.type === 'gig' ? 'gig_category_id' : (session.type === 'visend' ? 'visend_category_id' : (session.type === 'copay' ? 'copay_category_id' : 'vilog_category_id'));
+        let categoryId = await settingsService.get(categoryKey);
+        if (!categoryId) {
+            categoryId = await settingsService.get('global_ticket_category_id');
+        }
+        const categoryChannel = categoryId ? await interaction.guild.channels.fetch(categoryId).catch(() => null) : null;
+
+        // Permissions
+        const staffRoleId = await settingsService.get('staff_role_id');
+        const adminRoleId = await settingsService.get('admin_role_id');
+        const ownerRoleId = await settingsService.get('owner_role_id');
+
+        const permissions = [
+            { id: interaction.guild.id, deny: ['ViewChannel'] },
+            { id: interaction.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] },
+            { id: client.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory', 'ManageChannels'] }
+        ];
+
+        if (staffRoleId) permissions.push({ id: staffRoleId, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] });
+        if (adminRoleId && adminRoleId !== staffRoleId) permissions.push({ id: adminRoleId, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] });
+        if (ownerRoleId && ownerRoleId !== staffRoleId && ownerRoleId !== adminRoleId) permissions.push({ id: ownerRoleId, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] });
+
+        const isGIG = session.type === 'gig';
+        const isVisend = session.type === 'visend';
+        
+        const isCopay = session.type === 'copay';
+        const isMM = session.type === 'mm_rekber';
+        const isLimited = session.type === 'limited';
+        const productName = isGIG ? 'Gift In Game' : (isVisend ? 'Robux Via Send' : (isCopay ? 'Robux Community Payout' : (isMM ? 'MM / Rekber' : (isLimited ? 'Limited Item' : 'Robux Via Login'))));
+        const amountDisplay = session.amount;
+
+        // Create Ticket Channel
+        const channelPrefix = isGIG ? 'gig' : (isVisend ? 'visend' : (isCopay ? 'copay' : (isMM ? 'mm' : (isLimited ? 'limited' : 'vilog'))));
+        const channelName = (isMM || isLimited) ? `${channelPrefix}-${interaction.user.username}` : `${channelPrefix}-${amountDisplay}r-${interaction.user.username}`;
+        const channel = await interaction.guild.channels.create({
+            name: channelName,
+            type: 0, // GuildText
+            parent: categoryChannel ? categoryChannel.id : null,
+            permissionOverwrites: permissions
+        });
+
+        // Create DB Records
+        try {
+            await Order.create({
+                orderId,
+                userId: interaction.user.id,
+                productName,
+                price: session.price,
+                subtotal: session.price,
+                rounding: 0,
+                status: 'pending',
+                channelId: channel.id,
+            details: isMM ? {
+                buyer: session.buyer,
+                seller: session.seller,
+                item: session.item,
+                notes: session.notes,
+                selectedRange: session.selectedRange,
+                fee: session.fee
+            } : (isGIG ? {
+                gamepassName: session.gamepassName,
+                amount: session.amount,
+                price: session.price,
+                rate: session.rate
+            } : (isCopay ? {
+                username: session.robloxUsername,
+                amount: session.amount,
+                price: session.price
+            } : (isLimited ? {
+                username: session.robloxUsername,
+                item: session.item,
+                price: session.price,
+                notes: session.notes
+            } : {
+                username: session.robloxUsername,
+                password: session.robloxPassword,
+                amount: session.amount,
+                price: session.price,
+                package: session.isCustom ? 'Custom' : undefined
+            }))),
+            snapshot: {
+                productType: session.type,
+                productName: productName,
+                amount: session.amount,
+                price: session.price,
+                fee: session.fee || null,
+                selectedRange: session.selectedRange || null,
+                rate: session.rate || null,
+                pricingType: session.isCustom ? 'custom' : (session.amount === 150 && session.price === 23500 ? 'custom' : 'normal'),
+                timestamp: Date.now()
+            }
+        });
+
+        await Ticket.create({
+            ticketId: channel.id,
+            ownerId: interaction.user.id,
+            productName,
+            orderId,
+            status: 'open'
+        });
+        } catch (e) {
+            await channel.delete().catch(()=>{});
+            throw e;
+        }
+
+        // Update Voice Status
+        const voiceStatusService = require('../services/voiceStatusService');
+        voiceStatusService.updateAllVoiceStatuses(interaction.client);
+        const { AttachmentBuilder } = require('discord.js');
+        const path = require('path');
+        const qrPath = path.join(__dirname, '../../Public/QR Payment.jpg');
+        const qrAttachment = new AttachmentBuilder(qrPath, { name: 'qris.jpg' });
+
+        let ticketEmbed;
+        if (isGIG) {
+            ticketEmbed = new EmbedBuilder()
+                .setTitle('🛒 Pesanan LyraBlox')
+                .setDescription(
+                    `Halo <@${interaction.user.id}>,\n\n` +
+                    `Terima kasih telah menggunakan layanan Gift In Game LyraBlox.\n` +
+                    `Pesanan Anda berhasil dibuat.\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+                    `📦 **Detail Pesanan**`
+                )
+                .setColor('#f43f5e')
+                .addFields(
+                    { name: '📦 Produk', value: 'Gift In Game', inline: true },
+                    { name: '🎮 Game / Map', value: `\`\`\`text\n${session.gameLink || '-'}\n\`\`\``, inline: true },
+                    { name: '🎁 Gamepass', value: `\`\`\`text\n${session.gamepassName || '-'}\n\`\`\``, inline: true },
+                    { name: '💎 Harga Gamepass', value: `\`${session.amount.toLocaleString('id-ID')} Robux\``, inline: true },
+                    { name: '💰 Total Pembayaran', value: `\`Rp ${session.price.toLocaleString('id-ID')}\``, inline: true },
+                    { name: '👤 Username', value: `\`\`\`text\n${session.robloxUsername}\n\`\`\``, inline: true },
+                    { name: '📌 Status', value: '🟡 Pending', inline: true },
+                    { name: '━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
+                    { name: '💳 Pembayaran', value: `Silakan lakukan pembayaran sesuai dengan total yang tertera di atas.\n\n🟦 **GoPay**\n\`081393625527\``, inline: false },
+                    { name: '━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
+                    { 
+                        name: '📝 Catatan Pembayaran', 
+                        value: 
+                            '• Maksimal pembayaran melalui QRIS adalah Rp500.000 untuk setiap transaksi.\n' +
+                            '• Untuk transaksi di atas Rp500.000, silakan lakukan pembayaran lebih dari satu kali, atau gunakan satu kali pembayaran dengan tambahan biaya QRIS sebesar 0,3%.\n' +
+                            '• Apabila melakukan transfer ke GoPay menggunakan Bank atau E-Wallet selain GoPay, akan dikenakan biaya tambahan sebesar Rp1.000 sesuai ketentuan penyedia layanan.\n' +
+                            '• Pastikan nominal pembayaran sesuai dengan total yang tertera pada Ticket.\n' +
+                            '• Setelah pembayaran selesai, kirim bukti transfer langsung pada Ticket ini.\n' +
+                            '• Mohon tunggu hingga Staff memverifikasi pembayaran Anda secara manual.',
+                        inline: false 
+                    }
+                )
+                .setTimestamp();
+        } else if (isMM) {
+            ticketEmbed = new EmbedBuilder()
+                .setTitle('🛒 Pesanan LyraBlox')
+                .setDescription(
+                    `Halo <@${interaction.user.id}>,\n\n` +
+                    `Terima kasih telah menggunakan layanan MM / Rekber LyraBlox.\n` +
+                    `Pesanan Anda berhasil dibuat.\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+                    `📦 **Detail Transaksi**`
+                )
+                .setColor('#f59e0b')
+                .addFields(
+                    { name: 'Kategori', value: 'MM / Rekber', inline: true },
+                    { name: 'Buyer', value: `\`${session.buyer}\``, inline: true },
+                    { name: 'Seller', value: `\`${session.seller}\``, inline: true },
+                    { name: 'Barang / Item', value: `\`${session.item}\``, inline: false },
+                    { name: 'Catatan', value: `\`${session.notes || '-'}\``, inline: false },
+                    { name: 'Rentang Nominal', value: `\`${session.selectedRange}\``, inline: true },
+                    { name: 'Fee', value: `\`Rp${session.fee.toLocaleString('id-ID')}\``, inline: true },
+                    { name: 'Total Pembayaran', value: `\`Rp${session.price.toLocaleString('id-ID')}\``, inline: true },
+                    { name: '📌 Status', value: '🟡 Waiting Payment', inline: true },
+                    { name: '━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
+                    { name: '💳 Pembayaran', value: `Silakan lakukan pembayaran fee sesuai dengan total yang tertera di atas.\n\n🟦 **GoPay**\n\`081393625527\``, inline: false },
+                    { name: '━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
+                    { 
+                        name: '📝 Catatan Pembayaran', 
+                        value: 
+                            '• Setelah pembayaran fee selesai, kirim bukti transfer langsung pada Ticket ini.\n' +
+                            '• Mohon tunggu hingga Staff memverifikasi pembayaran Anda secara manual.\n' +
+                            '• Setelah fee terkonfirmasi, grup MM akan dibuat atau dilanjutkan.',
+                        inline: false 
+                    }
+                )
+                .setTimestamp();
+        } else if (isLimited) {
+            ticketEmbed = new EmbedBuilder()
+                .setTitle('📦 Pesanan LyraBlox')
+                .setDescription(
+                    `Halo <@${interaction.user.id}>,\n\n` +
+                    `Terima kasih telah mempercayai LyraBlox.\n` +
+                    `Pesanan berhasil dibuat.\n\n━━━━━━━━━━━━━━━━━━\n\n`
+                )
+                .setColor('#a855f7')
+                .addFields(
+                    { name: '📦 Produk', value: 'Limited Item', inline: true },
+                    { name: '👤 Username Roblox', value: `\`\`\`text\n${session.robloxUsername}\n\`\`\``, inline: true },
+                    { name: '💎 Nama Item', value: `\`\`\`text\n${session.item}\n\`\`\``, inline: true },
+                    { name: '💰 Harga', value: `\`Rp ${session.price.toLocaleString('id-ID')}\``, inline: true },
+                    { name: '📌 Status', value: '🟡 Pending Payment', inline: true },
+                    { name: '📝 Catatan', value: `\`${session.notes || '-'}\``, inline: false },
+                    { name: '━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
+                    { name: '💳 Pembayaran', value: `Silakan lakukan pembayaran sesuai nominal di atas.\n\n🟦 **GoPay**\n\`081393625527\``, inline: false },
+                    { name: '━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
+                    { 
+                        name: '📝 Catatan Pembayaran', 
+                        value: 
+                            '• Setelah pembayaran selesai, kirim bukti transfer langsung pada Ticket ini.\n' +
+                            '• Mohon tunggu hingga Staff memverifikasi pembayaran Anda secara manual.',
+                        inline: false 
+                    }
+                )
+                .setTimestamp();
+        } else {
+            ticketEmbed = new EmbedBuilder()
+                .setTitle('🛒 Pesanan LyraBlox')
+                .setDescription(
+                    `Halo <@${interaction.user.id}>,\n\n` +
+                    `Terima kasih telah mempercayai pembelian Robux kepada LyraBlox.\n` +
+                    `Pesanan Anda berhasil dibuat.\n` +
+                    `Silakan lakukan pembayaran sesuai instruksi di bawah ini.\n`
+                )
+                .addFields(
+                    { name: '📦 Produk', value: productName, inline: true },
+                    { name: '🎁 Paket', value: session.isCustom ? 'Custom' : `${session.amount.toLocaleString('id-ID')} Robux`, inline: true },
+                    { name: '💎 Jumlah Robux', value: `${session.amount.toLocaleString('id-ID')} Robux`, inline: true },
+                    { name: '💰 Total', value: `Rp ${session.price.toLocaleString('id-ID')}`, inline: true },
+                    { name: '👤 Username', value: `\`\`\`text\n${session.robloxUsername}\n\`\`\``, inline: true },
+                    { name: '📌 Status', value: '🟡 Pending', inline: true },
+                    ...(isVisend ? [] : [{ name: '🔑 Password', value: `||${session.robloxPassword}||`, inline: true }]),
+                    { name: '━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
+                    { name: '💳 Pembayaran', value: `Silakan lakukan pembayaran sesuai dengan total yang tertera di atas.\n\n🟦 **GoPay**\n\`081393625527\``, inline: false },
+                    { name: '━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
+                    { 
+                        name: '📝 Catatan Pembayaran', 
+                        value: 
+                            '• Maksimal pembayaran melalui QRIS adalah Rp500.000 untuk setiap transaksi.\n' +
+                            '• Untuk transaksi di atas Rp500.000, silakan lakukan pembayaran lebih dari satu kali, atau gunakan satu kali pembayaran dengan tambahan biaya QRIS sebesar 0,3%.\n' +
+                            '• Apabila melakukan transfer ke GoPay menggunakan Bank atau E-Wallet selain GoPay, akan dikenakan biaya tambahan sebesar Rp1.000 sesuai ketentuan penyedia layanan.\n' +
+                            '• Pastikan nominal pembayaran sesuai dengan total yang tertera pada Ticket.\n' +
+                            '• Setelah pembayaran selesai, kirim bukti transfer langsung pada Ticket ini.\n' +
+                            '• Mohon tunggu hingga Staff memverifikasi pembayaran Anda secara manual.',
+                        inline: false 
+                    }
+                )
+                .setColor('#ffaa00')
+                .setTimestamp();
+        }
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`robux_deliver_${orderId}`).setLabel('Mark Delivered').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`copy_user_${orderId}`).setLabel('📋 Copy Username').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('ticket_close').setLabel('Close Ticket').setStyle(ButtonStyle.Danger)
+        );
+        
+        if (isVisend) {
+            row.addComponents(
+                new ButtonBuilder().setCustomId('tutorial_v2l').setLabel('🔐 Tutorial V2L').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('tutorial_cek_limit').setLabel('📊 Cek Limit Robux').setStyle(ButtonStyle.Secondary)
+            );
+        }
+
+        const staffMention = staffRoleId ? `<@&${staffRoleId}>` : '';
+        const adminMention = adminRoleId ? `<@&${adminRoleId}>` : '';
+        await channel.send(`${interaction.user} | ${staffMention} ${adminMention}`);
+        await channel.send({ 
+            embeds: [ticketEmbed], 
+            components: [row]
+        });
+        await channel.send({
+            content: '📷 **QR Code Pembayaran:**',
+            files: [qrAttachment]
+        });
+
+        await interaction.editReply({ content: `✅ Pesanan dikonfirmasi! Silakan lanjutkan pembayaran di tiket: ${channel}`, embeds: [], components: [] });
+    } catch (err) {
+        logger.error('[InteractionCreate] Error confirming order:', err);
+        return interaction.editReply({ content: '❌ Terjadi kesalahan saat memproses pesanan.', embeds: [], components: [] });
+    }
+}
 module.exports = {
     name: Events.InteractionCreate,
     async execute(interaction, client) {
-        // 1. Enterprise Discord UI Framework Router
-        const uiRouter = require('../modules/ui/utils/router');
-        const isUI = await uiRouter.handleInteraction(interaction);
-        if (isUI) return;
-
-        // 2. Centralized Interaction Router (Legacy/Module components)
-        const handled = await interactionRouter.handle(interaction);
-        if (handled) return;
-
+        // Handle Slash Commands
         if (interaction.isChatInputCommand()) {
             const command = client.commands.get(interaction.commandName);
-
             if (!command) {
                 console.error(`No command matching ${interaction.commandName} was found.`);
                 return;
             }
-        } else if (interaction.isAutocomplete()) {
-            const command = client.commands.get(interaction.commandName);
-            if (command && typeof command.autocomplete === 'function') {
-                try {
-                    await command.autocomplete(interaction);
-                } catch (error) {
-                    console.error('Autocomplete Execution Error:', error);
-                }
-            }
-            return;
-        }
-
-        if (interaction.isChatInputCommand()) {
-            const command = client.commands.get(interaction.commandName);
 
             const startTime = Date.now();
             try {
@@ -43,23 +340,532 @@ module.exports = {
                 metricsService.recordCommand(interaction.commandName, latency);
             } catch (error) {
                 console.error('Command Execution Error:', error);
-                try {
-                    if (interaction.replied || interaction.deferred) {
-                        await interaction.followUp({ content: 'Terdapat kesalahan saat mengeksekusi command ini!', ephemeral: true });
-                    } else {
-                        await interaction.reply({ content: 'Terdapat kesalahan saat mengeksekusi command ini!', ephemeral: true });
-                    }
-                } catch (replyError) {
-                    console.error('Failed to send error message:', replyError);
+                const replyOpts = { content: 'Terdapat kesalahan saat mengeksekusi command ini!', ephemeral: true };
+                if (interaction.replied || interaction.deferred) {
+                    await interaction.followUp(replyOpts).catch(() => {});
+                } else {
+                    await interaction.reply(replyOpts).catch(() => {});
                 }
             }
-        } else if (interaction.isButton()) {
+            return;
+        }
+
+        // Handle String Select Menus
+        if (interaction.isStringSelectMenu()) {
             const { customId } = interaction;
-            
-            // Handle verify button
-            if (customId === 'verify_btn') {
-                const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
+
+            if (customId === 'select_mm_fee') {
+                const mmRekberService = require('../services/mmRekberService');
+                return await mmRekberService.handleFeeSelection(interaction);
+            }
+
+            if (customId === 'mm_fee_select_action') {
+                const action = interaction.values[0];
+                let fee = null;
+
+                if (action !== 'create_new') {
+                    const configService = require('../services/configService');
+                    const fees = await configService.getMMFees();
+                    fee = fees.find(f => f._id.toString() === action);
+                }
+
+                const modal = new ModalBuilder()
+                    .setCustomId(action === 'create_new' ? 'modal_mm_fee_create' : `modal_mm_fee_edit_${action}`)
+                    .setTitle(action === 'create_new' ? 'Tambah Fee MM' : 'Edit Fee MM');
+
+                const minInput = new TextInputBuilder()
+                    .setCustomId('minAmount')
+                    .setLabel('Minimal Transaksi (Rp)')
+                    .setStyle(TextInputStyle.Short)
+                    .setValue(fee ? fee.minAmount.toString() : '0')
+                    .setRequired(true);
+
+                const maxInput = new TextInputBuilder()
+                    .setCustomId('maxAmount')
+                    .setLabel('Maksimal Transaksi (Rp)')
+                    .setStyle(TextInputStyle.Short)
+                    .setValue(fee ? fee.maxAmount.toString() : '999999999')
+                    .setRequired(true);
+
+                const feeInput = new TextInputBuilder()
+                    .setCustomId('feeAmount')
+                    .setLabel('Biaya Fee (Rp)')
+                    .setStyle(TextInputStyle.Short)
+                    .setValue(fee ? fee.fee.toString() : '5000')
+                    .setRequired(true);
                 
+                const displayOrderInput = new TextInputBuilder()
+                    .setCustomId('displayOrder')
+                    .setLabel('Urutan Display')
+                    .setStyle(TextInputStyle.Short)
+                    .setValue(fee ? (fee.displayOrder || 0).toString() : '0')
+                    .setRequired(true);
+
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(minInput),
+                    new ActionRowBuilder().addComponents(maxInput),
+                    new ActionRowBuilder().addComponents(feeInput),
+                    new ActionRowBuilder().addComponents(displayOrderInput)
+                );
+
+                return await interaction.showModal(modal);
+            }
+
+            if (customId.startsWith('verify_answer_')) {
+                const questionIndex = parseInt(customId.split('_')[2]);
+                const selectedAnswer = interaction.values[0];
+
+                const Verification = require('../models/Verification');
+                const doc = await Verification.findOne({ discordId: interaction.user.id });
+
+                if (!doc || doc.status !== 'active' || !doc.activeSession) {
+                    return interaction.reply({ content: '❌ Sesi verifikasi tidak ditemukan atau sudah kedaluwarsa. Silakan mulai ulang.', ephemeral: true });
+                }
+
+                if (doc.activeSession.questions[questionIndex]) {
+                    doc.activeSession.questions[questionIndex].selectedAnswer = selectedAnswer;
+                    doc.activeSession.currentIndex += 1;
+                    doc.markModified('activeSession');
+                    await doc.save();
+                }
+
+                const verificationService = require('../services/verificationService');
+                return verificationService.renderWizardStep(interaction, doc, false);
+            }
+
+
+            if (customId === 'vilog_select_package') {
+                const selectedValue = interaction.values[0];
+                const [amount, price] = selectedValue.split(':');
+
+                const modal = new ModalBuilder()
+                    .setCustomId(`vilog_modal_order:${amount}:${price}`)
+                    .setTitle(`Order ${amount} Robux Vilog`);
+
+                const usernameInput = new TextInputBuilder()
+                    .setCustomId('roblox_username')
+                    .setLabel('Username Roblox')
+                    .setPlaceholder('Masukkan username Roblox Anda')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
+
+                const passwordInput = new TextInputBuilder()
+                    .setCustomId('roblox_password')
+                    .setLabel('Password Roblox')
+                    .setPlaceholder('Masukkan password Roblox Anda')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
+
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(usernameInput),
+                    new ActionRowBuilder().addComponents(passwordInput)
+                );
+
+                return await interaction.showModal(modal);
+            }
+
+            if (customId === 'visend_select_package') {
+                const selectedValue = interaction.values[0];
+
+                if (selectedValue === 'divider:0') {
+                    return interaction.reply({ content: '❌ Pilihan tidak valid.', ephemeral: true });
+                }
+                
+                if (selectedValue === 'custom:0') {
+                    const modal = new ModalBuilder()
+                        .setCustomId(`visend_modal_custom`)
+                        .setTitle(`Custom Robux Visend`);
+
+                    const amountInput = new TextInputBuilder()
+                        .setCustomId('robux_amount')
+                        .setLabel('Jumlah Robux')
+                        .setPlaceholder('Contoh: 1250')
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(true);
+
+                    const usernameInput = new TextInputBuilder()
+                        .setCustomId('roblox_username')
+                        .setLabel('Username Roblox')
+                        .setPlaceholder('Masukkan Username Roblox')
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(true);
+
+                    modal.addComponents(
+                        new ActionRowBuilder().addComponents(amountInput),
+                        new ActionRowBuilder().addComponents(usernameInput)
+                    );
+
+                    return await interaction.showModal(modal);
+                }
+
+                const [amount, price] = selectedValue.split(':');
+
+                const modal = new ModalBuilder()
+                    .setCustomId(`visend_modal_order:${amount}:${price}`)
+                    .setTitle(`Order ${amount} Robux Visend`);
+
+                const usernameInput = new TextInputBuilder()
+                    .setCustomId('roblox_username')
+                    .setLabel('Username Roblox (Tujuan)')
+                    .setPlaceholder('Masukkan username Roblox tujuan Gift')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
+
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(usernameInput)
+                );
+
+                return await interaction.showModal(modal);
+            }
+        }
+
+        // Handle Button Interactions
+        if (interaction.isButton()) {
+            const { customId } = interaction;
+
+
+
+            // Dashboard Management Menus
+            if (customId === 'dashboard_menu_inventory') {
+                const member = await interaction.guild.members.fetch(interaction.user.id);
+                if (interaction.guild.ownerId !== interaction.user.id && !member.permissions.has('Administrator')) {
+                    return interaction.reply({ content: '❌ Anda tidak memiliki izin.', ephemeral: true });
+                }
+
+                const configService = require('../services/configService');
+                const config = await configService.getGlobalConfig();
+
+                const modal = new ModalBuilder()
+                    .setCustomId('modal_inventory_management')
+                    .setTitle('Inventory Management');
+
+                const gigInput = new TextInputBuilder()
+                    .setCustomId('input_gig_stock')
+                    .setLabel('Stock Gift In Game (GIG)')
+                    .setStyle(TextInputStyle.Short)
+                    .setValue(config.gigStock ? config.gigStock.toString() : '0')
+                    .setRequired(true);
+
+                const sendInput = new TextInputBuilder()
+                    .setCustomId('input_send_stock')
+                    .setLabel('Stock Robux Via Send')
+                    .setStyle(TextInputStyle.Short)
+                    .setValue(config.sendStock ? config.sendStock.toString() : '0')
+                    .setRequired(true);
+
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(gigInput),
+                    new ActionRowBuilder().addComponents(sendInput)
+                );
+
+                return await interaction.showModal(modal);
+            }
+
+            if (customId === 'dashboard_menu_product') {
+                const member = await interaction.guild.members.fetch(interaction.user.id);
+                if (interaction.guild.ownerId !== interaction.user.id && !member.permissions.has('Administrator')) {
+                    return interaction.reply({ content: '❌ Anda tidak memiliki izin.', ephemeral: true });
+                }
+
+                const select = new StringSelectMenuBuilder()
+                    .setCustomId('dashboard_select_product_type')
+                    .setPlaceholder('Pilih Product untuk dikelola...')
+                    .addOptions(
+                        { label: 'Robux Via Login', value: 'LOGIN', emoji: '🟢' },
+                        { label: 'Robux Via Send', value: 'SEND', emoji: '📦' },
+                        { label: 'Community Payout', value: 'COPAY', emoji: '🌐' }
+                    );
+
+                const row = new ActionRowBuilder().addComponents(select);
+                return interaction.reply({ content: 'Silakan pilih Product yang ingin Anda ubah Pricelist-nya:', components: [row], ephemeral: true });
+            }
+
+            if (customId === 'dashboard_menu_gig') {
+                const member = await interaction.guild.members.fetch(interaction.user.id);
+                if (interaction.guild.ownerId !== interaction.user.id && !member.permissions.has('Administrator')) {
+                    return interaction.reply({ content: '❌ Anda tidak memiliki izin.', ephemeral: true });
+                }
+
+                const configService = require('../services/configService');
+                const config = await configService.getGlobalConfig();
+
+                const modal = new ModalBuilder()
+                    .setCustomId('modal_gig_config')
+                    .setTitle('GIG Config (Gift In Game)');
+
+                const rateInput = new TextInputBuilder()
+                    .setCustomId('input_gig_rate')
+                    .setLabel('GIG Rate (contoh: 90, 95)')
+                    .setStyle(TextInputStyle.Short)
+                    .setValue(config.gigRate ? config.gigRate.toString() : '90')
+                    .setRequired(true);
+
+                modal.addComponents(new ActionRowBuilder().addComponents(rateInput));
+
+                return await interaction.showModal(modal);
+            }
+
+            if (customId === 'dashboard_limited_menu') {
+                const member = await interaction.guild.members.fetch(interaction.user.id);
+                if (interaction.guild.ownerId !== interaction.user.id && !member.permissions.has('Administrator')) {
+                    return interaction.reply({ content: '❌ Anda tidak memiliki izin.', ephemeral: true });
+                }
+
+                const configService = require('../services/configService');
+                const config = await configService.getGlobalConfig();
+                const limitedStatus = config.products?.limited_item?.status || 'OPEN';
+
+                const embed = new EmbedBuilder()
+                    .setTitle('💎 Limited Management')
+                    .setDescription('Silakan kelola konfigurasi Limited Item di bawah ini.\n\n`Status:` ' + (limitedStatus === 'OPEN' ? '🟢 OPEN' : '🔴 CLOSE'))
+                    .setColor('#0099ff');
+
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId('limited_toggle_status').setLabel(`Toggle Status (Sekarang ${limitedStatus})`).setStyle(limitedStatus === 'OPEN' ? ButtonStyle.Success : ButtonStyle.Danger),
+                    new ButtonBuilder().setCustomId('limited_sync_panel').setLabel('🔄 Deploy / Sync Panel').setStyle(ButtonStyle.Secondary)
+                );
+
+                return interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+            }
+
+            if (customId === 'limited_sync_panel') {
+                await interaction.deferReply({ ephemeral: true });
+                const limitedItemService = require('../services/limitedItemService');
+                await limitedItemService.syncLimitedPanel(interaction.client);
+                return interaction.editReply('✅ Panel Limited Item berhasil di-deploy / sync ke channel Limited.');
+            }
+
+            if (customId === 'limited_toggle_status') {
+                await interaction.deferUpdate();
+                const configService = require('../services/configService');
+                const config = await configService.getGlobalConfig();
+                const newStatus = config.products?.limited_item?.status === 'OPEN' ? 'CLOSE' : 'OPEN';
+                await configService.toggleLimitedStatus(newStatus, interaction.user.username, interaction.user.id);
+                
+                const { buildDashboardMessage } = require('../services/storeService');
+                await buildDashboardMessage(interaction.client);
+                const voiceStatusService = require('../services/voiceStatusService');
+                voiceStatusService.updateAllVoiceStatuses(interaction.client);
+                
+                return interaction.editReply({ content: `✅ Status Limited Item berhasil diubah menjadi ${newStatus}.`, embeds: [], components: [] });
+            }
+
+            if (customId === 'dashboard_menu_mm') {
+                const member = await interaction.guild.members.fetch(interaction.user.id);
+                if (interaction.guild.ownerId !== interaction.user.id && !member.permissions.has('Administrator')) {
+                    return interaction.reply({ content: '❌ Anda tidak memiliki izin.', ephemeral: true });
+                }
+
+                const configService = require('../services/configService');
+                const config = await configService.getGlobalConfig();
+                const mmStatus = config.products?.mm_rekber?.status || 'OPEN';
+
+                const embed = new EmbedBuilder()
+                    .setTitle('🛡️ MM Management')
+                    .setDescription('Silakan kelola konfigurasi MM / Rekber di bawah ini.\n\n`Status:` ' + (mmStatus === 'OPEN' ? '🟢 OPEN' : '🔴 CLOSE'))
+                    .setColor('#0099ff');
+
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId('mm_manage_fee').setLabel('📝 Kelola Daftar Fee').setStyle(ButtonStyle.Primary),
+                    new ButtonBuilder().setCustomId('mm_toggle_status').setLabel(`Toggle Status (Sekarang ${mmStatus})`).setStyle(mmStatus === 'OPEN' ? ButtonStyle.Success : ButtonStyle.Danger),
+                    new ButtonBuilder().setCustomId('mm_sync_panel').setLabel('🔄 Deploy / Sync Panel').setStyle(ButtonStyle.Secondary)
+                );
+
+                return interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+            }
+
+            if (customId === 'mm_sync_panel') {
+                await interaction.deferReply({ ephemeral: true });
+                const mmRekberService = require('../services/mmRekberService');
+                await mmRekberService.syncMMPanel(interaction.client);
+                return interaction.editReply('✅ Panel MM berhasil di-deploy / sync ke channel MM.');
+            }
+
+            if (customId === 'mm_toggle_status') {
+                await interaction.deferUpdate();
+                const configService = require('../services/configService');
+                const config = await configService.getGlobalConfig();
+                const newStatus = config.products?.mm_rekber?.status === 'OPEN' ? 'CLOSE' : 'OPEN';
+                await configService.toggleMMStatus(newStatus, interaction.user.username, interaction.user.id);
+                
+                // Refresh dashboard message
+                const { buildDashboardMessage } = require('../services/storeService');
+                const newDashboard = await buildDashboardMessage(interaction.client);
+                const voiceStatusService = require('../services/voiceStatusService');
+                voiceStatusService.updateAllVoiceStatuses(interaction.client);
+                
+                return interaction.editReply({ content: `✅ Status MM berhasil diubah menjadi ${newStatus}.`, embeds: [], components: [] });
+            }
+
+            if (customId === 'mm_manage_fee') {
+                // Return a select menu to either create new fee or edit existing
+                const configService = require('../services/configService');
+                const fees = await configService.getMMFees();
+
+                const select = new StringSelectMenuBuilder()
+                    .setCustomId('mm_fee_select_action')
+                    .setPlaceholder('Pilih aksi...')
+                    .addOptions(
+                        { label: '➕ Tambah Fee Baru', value: 'create_new', description: 'Buat rentang fee baru', emoji: '➕' }
+                    );
+
+                fees.forEach(f => {
+                    const minStr = `Rp${f.minAmount.toLocaleString('id-ID')}`;
+                    const maxStr = f.maxAmount >= 999999999 ? 'Ke Atas' : `Rp${f.maxAmount.toLocaleString('id-ID')}`;
+                    select.addOptions({
+                        label: `Edit: ${minStr} - ${maxStr}`,
+                        description: `Fee: Rp${f.fee.toLocaleString('id-ID')}`,
+                        value: f._id.toString()
+                    });
+                });
+
+                const row = new ActionRowBuilder().addComponents(select);
+                return interaction.reply({ content: 'Pilih Fee yang ingin diedit, atau buat baru:', components: [row], ephemeral: true });
+            }
+
+            // Toggle Product Status Buttons
+            if (customId === 'toggle_robux_login' || customId === 'toggle_robux_send' || customId === 'toggle_gift_in_game') {
+                const member = await interaction.guild.members.fetch(interaction.user.id);
+                const isOwner = interaction.guild.ownerId === interaction.user.id;
+                const isAdmin = member.permissions.has('Administrator');
+                
+                if (!isOwner && !isAdmin) {
+                    return interaction.reply({ content: '❌ Anda tidak memiliki izin untuk mengelola Dashboard.', ephemeral: true });
+                }
+
+                await interaction.deferUpdate();
+                
+                const setting = await getStoreSetting();
+                if (!setting.products) {
+                    setting.products = {
+                        robux_login: { enabled: true },
+                        robux_send: { enabled: true },
+                        gift_in_game: { enabled: true }
+                    };
+                }
+
+                if (customId === 'toggle_robux_login') {
+                    setting.products.robux_login.enabled = !setting.products.robux_login.enabled;
+                } else if (customId === 'toggle_robux_send') {
+                    setting.products.robux_send.enabled = !setting.products.robux_send.enabled;
+                } else if (customId === 'toggle_gift_in_game') {
+                    setting.products.gift_in_game.enabled = !setting.products.gift_in_game.enabled;
+                }
+
+                setting.updatedBy = interaction.user.username;
+                setting.markModified('products');
+                await setting.save();
+
+                // Update Voice Status
+                const voiceStatusService = require('../services/voiceStatusService');
+                voiceStatusService.updateAllVoiceStatuses(interaction.client);
+
+                const newDashboard = await buildDashboardMessage(interaction.client);
+                await interaction.editReply({ embeds: newDashboard.embeds, components: newDashboard.components });
+                return;
+            }
+
+            // Refresh Server Handler
+            if (customId === 'dashboard_refresh_server') {
+                const member = await interaction.guild.members.fetch(interaction.user.id);
+                const isOwner = interaction.guild.ownerId === interaction.user.id;
+                const isAdmin = member.permissions.has('Administrator');
+                
+                if (!isOwner && !isAdmin) {
+                    return interaction.reply({ content: '❌ Anda tidak memiliki permission untuk melakukan refresh server.', ephemeral: true });
+                }
+
+                await interaction.reply({ content: '⏳ Refreshing Server...', ephemeral: true });
+
+                try {
+                    const configService = require('../services/configService');
+                    if (configService.getProductPackages) {
+                        await configService.getProductPackages('visend', true);
+                        await configService.getProductPackages('vilog', true);
+                        await configService.getProductPackages('gig', true);
+                        await configService.getProductPackages('copay', true);
+                        await configService.getProductPackages('custom', true);
+                    }
+                    if (configService.getMMFees) {
+                        await configService.getMMFees(true);
+                    }
+                    if (configService.getGlobalConfig) {
+                        const guildId = process.env.GUILD_ID || interaction.guild.id;
+                        await configService.getGlobalConfig(guildId, true);
+                    }
+
+                    // Sync Voice Status
+                    const voiceStatusService = require('../services/voiceStatusService');
+                    if (voiceStatusService.updateAllVoiceStatuses && interaction.client) {
+                        voiceStatusService.updateAllVoiceStatuses(interaction.client);
+                    }
+                    
+                    // Sync Panels
+                    const robuxService = require('../services/robuxService');
+                    if (robuxService.syncVisendPanel) await robuxService.syncVisendPanel(interaction.client);
+                    if (robuxService.syncVilogPanel) await robuxService.syncVilogPanel(interaction.client);
+                    
+                    // Sync Dashboard itself
+                    const dashboardService = require('../services/dashboardService');
+                    await dashboardService.syncDashboard(interaction.client);
+                    
+                    await interaction.editReply({
+                        content: `🔄 **Server Refresh**\n\n✅ Configuration synced\n✅ Product Panels synced\n✅ Voice Status synced\n✅ Store Status synced\n\nRefresh completed successfully. Bot process is restarting to apply changes cleanly.`
+                    });
+
+                    // Trigger process restart to clear memory and node instances
+                    setTimeout(() => {
+                        process.exit(0);
+                    }, 2000);
+                } catch (err) {
+                    const logger = require('../utils/logger');
+                    logger.error('[Dashboard] Error during server refresh:', err);
+                    await interaction.editReply({ content: '❌ Refresh Server gagal. Hubungi Developer.' });
+                }
+                return;
+            }
+
+            // Cancel Busy Warn
+            if (customId === 'cancel_order_warn') {
+                return interaction.update({ content: '❌ Pesanan dibatalkan.', embeds: [], components: [] });
+            }
+
+            // Centralized Order Handler Logic
+            // deferred = true means interaction.deferReply() was already called, use editReply
+            const handleOrderClick = async (type, deferred = false) => {
+                const setting = await getStoreSetting();
+                
+                // Product-specific status check
+                if (setting.products) {
+                    let productEnabled = true;
+                    
+                    if (type === 'vilog') {
+                        productEnabled = setting.products.robux_login.enabled;
+                    } else if (type === 'visend') {
+                        productEnabled = setting.products.robux_send.enabled;
+                    } else if (type === 'gig') {
+                        productEnabled = setting.products.gift_in_game.enabled;
+                    }
+                    
+                    if (!productEnabled) {
+                        const closedEmbed = new EmbedBuilder()
+                            .setTitle('🔴 Layanan Sedang Ditutup')
+                            .setDescription('Mohon maaf.\nLayanan ini sedang tidak menerima pesanan.\nSilakan coba kembali nanti.')
+                            .setColor('#ff0000');
+                        
+                        if (deferred) {
+                            await interaction.editReply({ embeds: [closedEmbed] });
+                        } else {
+                            await interaction.reply({ embeds: [closedEmbed], ephemeral: true });
+                        }
+                        return 'closed';
+                    }
+                }
+                
+                return 'proceed'; // Let the code proceed
+            };
+            // Static Verification Button
+            if (customId === 'verify_btn') {
                 const modal = new ModalBuilder()
                     .setCustomId('verify_modal')
                     .setTitle('Verifikasi Akun Roblox');
@@ -72,1213 +878,2130 @@ module.exports = {
                     .setMinLength(3)
                     .setMaxLength(20);
 
-                const firstActionRow = new ActionRowBuilder().addComponents(usernameInput);
-                modal.addComponents(firstActionRow);
+                modal.addComponents(new ActionRowBuilder().addComponents(usernameInput));
+                return await interaction.showModal(modal);
+            }
+
+            // Order Robux Via Login Button Trigger
+            
+            // ==========================================
+            // VERIFICATION SYSTEM HANDLERS
+            // ==========================================
+            if (customId === 'verify_start') {
+                const verificationService = require('../services/verificationService');
+                return verificationService.startVerification(interaction);
+            }
+            // ==========================================
+
+            // ==========================================
+            // COPAY BUTTON HANDLERS
+            // ==========================================
+
+            // Button: 🌐 Join Community (sends DM with community links)
+            if (customId === 'copay_join_community') {
+                const existing = await CopayEligibility.findOne({ discordId: interaction.user.id });
+                if (existing) {
+                    const unixEligible = Math.floor(existing.eligibleAt.getTime() / 1000);
+                    if (existing.status === 'eligible') {
+                        return interaction.reply({ content: '✅ Anda sudah **Eligible**! Silakan langsung tekan tombol **🛒 Order Payout**.', ephemeral: true });
+                    }
+                    return interaction.reply({ content: `⏳ Timer Eligibility Anda sudah berjalan.\n🎯 Eligible pada: <t:${unixEligible}:F> (<t:${unixEligible}:R>)`, ephemeral: true });
+                }
+
+                const dmEmbed = new EmbedBuilder()
+                    .setTitle('🌐 JOIN COMMUNITY ROBLOX')
+                    .setDescription(
+                        'Silakan bergabung ke **SELURUH** komunitas Roblox LyraBlox berikut:\n\n' +
+                        '1️⃣ https://www.roblox.com/share/g/628192083\n' +
+                        '2️⃣ https://www.roblox.com/share/g/354576018\n' +
+                        '3️⃣ https://www.roblox.com/share/g/196386723\n' +
+                        '4️⃣ https://www.roblox.com/share/g/1061172752\n\n' +
+                        '━━━━━━━━━━━━━━━━━━━━━━\n\n' +
+                        'Setelah Anda bergabung ke **seluruh** Community di atas, tekan tombol di bawah ini untuk mengkonfirmasi.'
+                    )
+                    .setColor('#3498db');
+                
+                const dmRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('copay_confirm_joined')
+                        .setLabel('✅ Saya Sudah Join')
+                        .setStyle(ButtonStyle.Success)
+                );
+                
+                try {
+                    await interaction.user.send({ embeds: [dmEmbed], components: [dmRow] });
+                    return interaction.reply({ content: '✅ Silakan cek **DM** Anda untuk melanjutkan proses Join Community.', ephemeral: true });
+                } catch (err) {
+                    return interaction.reply({ content: '❌ Gagal mengirim DM. Pastikan setting DM Anda terbuka untuk server ini.', ephemeral: true });
+                }
+            }
+
+            // Button: ✅ Saya Sudah Join (in DM — opens modal for Roblox username)
+            if (customId === 'copay_confirm_joined') {
+                const existing = await CopayEligibility.findOne({ discordId: interaction.user.id });
+                if (existing) {
+                    const unixEligible = Math.floor(existing.eligibleAt.getTime() / 1000);
+                    return interaction.reply({ content: `❌ Timer Eligibility Anda sudah berjalan.\n🎯 Eligible pada: <t:${unixEligible}:F> (<t:${unixEligible}:R>)`, ephemeral: true });
+                }
+
+                const modal = new ModalBuilder()
+                    .setCustomId('copay_username_modal')
+                    .setTitle('Konfirmasi Username Roblox');
+                
+                const usernameInput = new TextInputBuilder()
+                    .setCustomId('roblox_username')
+                    .setLabel('Username Roblox')
+                    .setPlaceholder('Masukkan Username Roblox Anda...')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
+                
+                modal.addComponents(new ActionRowBuilder().addComponents(usernameInput));
+                return interaction.showModal(modal);
+            }
+
+            // Button: 📊 Cek Status Eligibility
+            if (customId === 'copay_check_status') {
+                const doc = await CopayEligibility.findOne({ discordId: interaction.user.id });
+                if (!doc) {
+                    return interaction.reply({ content: '❌ Anda belum memulai Eligibility. Silakan tekan tombol **🌐 Join Community** terlebih dahulu.', ephemeral: true });
+                }
+
+                const unixStart = Math.floor(doc.startedAt.getTime() / 1000);
+                const unixEligible = Math.floor(doc.eligibleAt.getTime() / 1000);
+                const now = new Date();
+                const elapsed = Math.max(0, Math.floor((now - doc.startedAt) / (1000 * 60 * 60 * 24)));
+                const progressDays = Math.min(elapsed, 14);
+
+                let statusEmoji, statusText;
+                if (doc.status === 'eligible') {
+                    statusEmoji = '🟢';
+                    statusText = 'Eligible';
+                } else {
+                    statusEmoji = '🟡';
+                    statusText = 'Waiting';
+                }
+
+                const statusEmbed = new EmbedBuilder()
+                    .setTitle('⏳ ROBUX COMMUNITY ELIGIBILITY')
+                    .setDescription(
+                        `👤 **Roblox Username**\n${doc.robloxUsername}\n\n` +
+                        `📅 **Mulai Perhitungan**\n<t:${unixStart}:F> (<t:${unixStart}:R>)\n\n` +
+                        `🎯 **Eligible Pada**\n<t:${unixEligible}:F> (<t:${unixEligible}:R>)\n\n` +
+                        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                        `**Progress**\n` +
+                        `Status: ${statusEmoji} ${statusText}\n` +
+                        `Progress: ${progressDays} / 14 Hari`
+                    )
+                    .setColor(doc.status === 'eligible' ? '#2ecc71' : '#f1c40f')
+                    .setFooter({ text: doc.status === 'eligible' ? 'Anda sudah dapat melakukan order!' : 'Bot akan memberi tahu Anda secara otomatis ketika telah memenuhi syarat.' });
+
+                try {
+                    await interaction.user.send({ embeds: [statusEmbed] });
+                    return interaction.reply({ content: '✅ Status Eligibility telah dikirim ke **DM** Anda.', ephemeral: true });
+                } catch (err) {
+                    return interaction.reply({ embeds: [statusEmbed], ephemeral: true });
+                }
+            }
+
+            // Button: 🛒 Order Payout (checks eligible role)
+            if (customId === 'copay_order_now') {
+                const ELIGIBLE_ROLE_ID = '1534989509857509426';
+                const member = interaction.member;
+                const hasRole = member && member.roles && member.roles.cache.has(ELIGIBLE_ROLE_ID);
+
+                if (!hasRole) {
+                    const embed = new EmbedBuilder()
+                        .setDescription(
+                            '━━━━━━━━━━━━━━━━━━\n\n' +
+                            '❌ **Anda belum memenuhi syarat.**\n\n' +
+                            'Silakan bergabung ke seluruh Community Roblox dan tunggu minimal 14 Hari.\n\n' +
+                            '━━━━━━━━━━━━━━━━━━'
+                        )
+                        .setColor('#e74c3c');
+                    return interaction.reply({ embeds: [embed], ephemeral: true });
+                }
+
+                const configService = require('../services/configService');
+                const packages = await configService.getProductPackages('COPAY');
+                if (packages.length === 0) {
+                    return interaction.reply({ content: '❌ Paket Robux (Copay) saat ini sedang kosong.', ephemeral: true });
+                }
+
+                const { StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
+                const selectMenu = new StringSelectMenuBuilder()
+                    .setCustomId('copay_select_package')
+                    .setPlaceholder('Pilih paket yang ingin dibeli...');
+
+                packages.forEach(pkg => {
+                    selectMenu.addOptions(
+                        new StringSelectMenuOptionBuilder()
+                            .setLabel(`${pkg.amount} Robux`)
+                            .setDescription(`Harga: Rp ${pkg.price.toLocaleString('id-ID')}`)
+                            .setValue(pkg._id.toString())
+                    );
+                });
+
+                const row = new ActionRowBuilder().addComponents(selectMenu);
+                return interaction.reply({ content: 'Silakan pilih paket Community Payout yang ingin Anda beli:', components: [row], ephemeral: true });
+            }
+
+            // Select Menu: copay_select_package
+            if (customId === 'copay_select_package') {
+                const packageId = interaction.values[0];
+                const pkg = await RobuxPackage.findById(packageId);
+                if (!pkg) return interaction.reply({ content: 'Paket tidak ditemukan.', ephemeral: true });
+
+                const modal = new ModalBuilder()
+                    .setCustomId(`copay_modal_order:${packageId}`)
+                    .setTitle('Konfirmasi Pesanan Community Payout');
+                
+                const robloxUsernameInput = new TextInputBuilder()
+                    .setCustomId('roblox_username')
+                    .setLabel('Username Roblox Tujuan')
+                    .setPlaceholder('Masukkan Username Roblox...')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
+
+                modal.addComponents(new ActionRowBuilder().addComponents(robloxUsernameInput));
+                return await interaction.showModal(modal);
+            }
+            // ==========================================
+
+            if (customId === 'vilog_order_now') {
+                await interaction.deferReply({ ephemeral: true });
+                const check = await handleOrderClick('vilog', true);
+                if (check !== 'proceed') return;
+                try {
+                    const configService = require('../services/configService');
+                    const packages = await configService.getProductPackages('LOGIN');
+                    if (packages.length === 0) {
+                        return interaction.editReply({ content: '❌ Saat ini belum ada paket Robux Vilog yang aktif di database.' });
+                    }
+
+                    const select = new StringSelectMenuBuilder()
+                        .setCustomId('vilog_select_package')
+                        .setPlaceholder('Pilih Paket Robux');
+
+                    packages.forEach(pkg => {
+                        select.addOptions(
+                            new StringSelectMenuOptionBuilder()
+                                .setLabel(`${pkg.amount.toLocaleString('id-ID')} Robux`)
+                                .setDescription(`Harga: Rp ${pkg.price.toLocaleString('id-ID')}`)
+                                .setValue(`${pkg.amount}:${pkg.price}`)
+                        );
+                    });
+
+                    const row = new ActionRowBuilder().addComponents(select);
+                    return await interaction.editReply({ content: 'Silakan pilih paket Robux yang ingin Anda beli:', components: [row] });
+                } catch (err) {
+                    logger.error('[InteractionCreate] Error loading Vilog packages:', err);
+                    return interaction.editReply({ content: '❌ Gagal memuat daftar paket Robux.' }).catch(() => {});
+                }
+            }
+
+            // Order Robux Via Send Button Trigger
+            if (customId === 'visend_order_now') {
+                await interaction.deferReply({ ephemeral: true });
+                const check = await handleOrderClick('visend', true);
+                if (check !== 'proceed') return;
+                try {
+                    const configService = require('../services/configService');
+                    const packages = await configService.getProductPackages('SEND');
+                    if (packages.length === 0) {
+                        return interaction.editReply({ content: '❌ Saat ini belum ada paket Robux Visend yang aktif di database.' });
+                    }
+
+                    const select = new StringSelectMenuBuilder()
+                        .setCustomId('visend_select_package')
+                        .setPlaceholder('Pilih Paket Robux');
+
+                    select.addOptions(
+                        new StringSelectMenuOptionBuilder()
+                            .setLabel('✨ Custom Robux')
+                            .setDescription('Tentukan jumlah Robux yang Anda inginkan')
+                            .setValue('custom:0'),
+                        new StringSelectMenuOptionBuilder()
+                            .setLabel('━━━━━━━━━━━━━━')
+                            .setDescription('Daftar Paket Reguler')
+                            .setValue('divider:0')
+                    );
+
+                    packages.forEach(pkg => {
+                        const label = pkg.label || `${pkg.amount.toLocaleString('id-ID')} Robux`;
+                        select.addOptions(
+                            new StringSelectMenuOptionBuilder()
+                                .setLabel(label)
+                                .setDescription(`Harga: Rp ${pkg.price.toLocaleString('id-ID')}`)
+                                .setValue(`${pkg.amount}:${pkg.price}`)
+                        );
+                    });
+
+                    const row = new ActionRowBuilder().addComponents(select);
+                    return await interaction.editReply({ content: 'Silakan pilih paket Robux yang ingin Anda beli:', components: [row] });
+                } catch (err) {
+                    logger.error('[InteractionCreate] Error loading Visend packages:', err);
+                    return interaction.editReply({ content: '❌ Gagal memuat daftar paket Robux.' }).catch(() => {});
+                }
+            }
+
+            // Order Gift In Game (GIG) Button Trigger
+            if (customId === 'gig_order_now') {
+                const check = await handleOrderClick('gig');
+                if (check !== 'proceed') return;
+                const modal = new ModalBuilder()
+                    .setCustomId('gig_modal_order')
+                    .setTitle('Order Gift In Game');
+
+                const gameLinkInput = new TextInputBuilder()
+                    .setCustomId('gig_game_link')
+                    .setLabel('Nama / Link Map Roblox')
+                    .setPlaceholder('Contoh: Pet Simulator 99 atau https://...')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
+
+                const gamepassNameInput = new TextInputBuilder()
+                    .setCustomId('gig_gamepass_name')
+                    .setLabel('Nama Gamepass')
+                    .setPlaceholder('Contoh: VIP Gamepass')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
+
+                const amountInput = new TextInputBuilder()
+                    .setCustomId('gig_robux_amount')
+                    .setLabel('Jumlah Robux Gamepass')
+                    .setPlaceholder('Contoh: 500')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
+
+                const usernameInput = new TextInputBuilder()
+                    .setCustomId('roblox_username')
+                    .setLabel('Username Roblox (Tujuan)')
+                    .setPlaceholder('Masukkan username Roblox tujuan Gift')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
+
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(gameLinkInput),
+                    new ActionRowBuilder().addComponents(gamepassNameInput),
+                    new ActionRowBuilder().addComponents(amountInput),
+                    new ActionRowBuilder().addComponents(usernameInput)
+                );
 
                 return await interaction.showModal(modal);
             }
 
-            try {
-                const staffRoles = ['1505190278003298324', '1517049069166526546'];
-                const restrictedButtons = ['ticket_close', 'staff_delivered', 'staff_cancel', 'staff_delivered_product', 'staff_cancel_product'];
-                if (restrictedButtons.includes(customId)) {
-                    const hasRole = staffRoles.some(roleId => interaction.member.roles.cache.has(roleId));
-                    if (!hasRole) {
-                        return interaction.reply({ content: '❌ Anda tidak memiliki izin untuk melakukan tindakan ini.', ephemeral: true });
-                    }
+            if (customId === 'btn_mm_order') {
+                const mmRekberService = require('../services/mmRekberService');
+                const replyData = await mmRekberService.generateFeeSelectMenu();
+                return await interaction.reply(replyData);
+            }
+
+            if (customId === 'btn_limited_order') {
+                const configService = require('../services/configService');
+                const config = await configService.getGlobalConfig();
+                const limitedStatus = config.products?.limited_item?.status || 'OPEN';
+
+                if (limitedStatus === 'CLOSE') {
+                    const closeEmbed = new EmbedBuilder()
+                        .setColor('#ef4444')
+                        .setDescription('🔴 **Store Sedang Tutup**\n\nMohon maaf.\nProduk Limited Item sedang tidak menerima pesanan.\n\nSilakan kembali lagi ketika produk telah dibuka.');
+                    return await interaction.reply({ embeds: [closeEmbed], ephemeral: true });
                 }
 
-                if (customId.startsWith('ticket_') && customId !== 'ticket_close') {
-                    const category = customId.split('_')[1];
-                    const Ticket = require('../models/Ticket');
-                    
-                    await interaction.deferReply({ ephemeral: true });
+                const modal = new ModalBuilder()
+                    .setCustomId('modal_limited_order')
+                    .setTitle('Form Limited Item');
 
-                    const ticketId = `ticket-${interaction.user.id.slice(-4)}-${Date.now().toString().slice(-4)}`;
-                    
-                    const channel = await interaction.guild.channels.create({
-                        name: `${category}-${interaction.user.username}`,
-                        type: 0, // GuildText
-                        permissionOverwrites: [
-                            {
-                                id: interaction.guild.id,
-                                deny: ['ViewChannel'],
-                            },
-                            {
-                                id: interaction.user.id,
-                                allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'],
-                            },
-                            {
-                                id: interaction.client.user.id,
-                                allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory', 'ManageChannels'],
-                            },
-                            {
-                                id: '1505190278003298324', // Owner
-                                allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'],
-                            },
-                            {
-                                id: '1517049069166526546', // Admin
-                                allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'],
-                            }
-                        ],
-                    });
+                const usernameInput = new TextInputBuilder()
+                    .setCustomId('limited_username')
+                    .setLabel('Username Roblox')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
 
-                    await Ticket.create({
-                        ticketId: channel.id,
-                        ownerId: interaction.user.id,
-                        category: category
-                    });
+                const itemInput = new TextInputBuilder()
+                    .setCustomId('limited_item_name')
+                    .setLabel('Nama Limited Item')
+                    .setPlaceholder('Contoh: Dominus, Valkyrie')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
 
-                    const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-                    const embed = new EmbedBuilder()
-                        .setTitle(`Ticket: ${category.toUpperCase()}`)
-                        .setDescription(`Halo ${interaction.user}, staf kami akan segera membantu Anda. Silakan jelaskan keperluan Anda.`)
-                        .setColor('#00ff00');
+                const priceInput = new TextInputBuilder()
+                    .setCustomId('limited_price')
+                    .setLabel('Harga (Rp)')
+                    .setPlaceholder('Contoh: 35000000')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
 
-                    const row = new ActionRowBuilder()
-                        .addComponents(
-                            new ButtonBuilder()
-                                .setCustomId('ticket_close')
-                                .setLabel('Close Ticket')
-                                .setStyle(ButtonStyle.Danger)
+                const notesInput = new TextInputBuilder()
+                    .setCustomId('limited_notes')
+                    .setLabel('Catatan Tambahan')
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setRequired(false);
+
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(usernameInput),
+                    new ActionRowBuilder().addComponents(itemInput),
+                    new ActionRowBuilder().addComponents(priceInput),
+                    new ActionRowBuilder().addComponents(notesInput)
+                );
+
+                return await interaction.showModal(modal);
+            }
+
+            if (customId === 'continue_order_vilog') {
+                await interaction.deferUpdate();
+                const setting = await getStoreSetting();
+                if (setting.products && !setting.products.robux_login.enabled) {
+                    return interaction.editReply({ content: '❌ Mohon maaf, layanan ini sedang tidak menerima pesanan.', embeds: [], components: [] });
+                }
+                try {
+                    const configService = require('../services/configService');
+                    const packages = await configService.getProductPackages('LOGIN');
+                    if (packages.length === 0) {
+                        return interaction.editReply({ content: '❌ Saat ini belum ada paket Robux Vilog yang aktif di database.', embeds: [], components: [] });
+                    }
+
+                    const select = new StringSelectMenuBuilder()
+                        .setCustomId('vilog_select_package')
+                        .setPlaceholder('Pilih Paket Robux');
+
+                    packages.forEach(pkg => {
+                        select.addOptions(
+                            new StringSelectMenuOptionBuilder()
+                                .setLabel(`${pkg.amount.toLocaleString('id-ID')} Robux`)
+                                .setDescription(`Harga: Rp ${pkg.price.toLocaleString('id-ID')}`)
+                                .setValue(`${pkg.amount}:${pkg.price}`)
                         );
+                    });
 
-                    await channel.send({ content: `${interaction.user} | <@&1505190278003298324> <@&1517049069166526546>`, embeds: [embed], components: [row] });
-                    await interaction.editReply(`✅ Tiket berhasil dibuat: ${channel}`);
-                } else if (customId === 'ticket_close') {
-                    const Ticket = require('../models/Ticket');
-                    await interaction.deferReply();
-                    
-                    await Ticket.findOneAndUpdate(
-                        { ticketId: interaction.channel.id },
-                        { status: 'closed' }
+                    const row = new ActionRowBuilder().addComponents(select);
+                    return await interaction.editReply({ content: 'Silakan pilih paket Robux yang ingin Anda beli:', components: [row] });
+                } catch (err) {
+                    logger.error('[InteractionCreate] Error loading Vilog packages:', err);
+                    return interaction.editReply({ content: '❌ Gagal memuat daftar paket Robux.', embeds: [], components: [] }).catch(() => {});
+                }
+            }
+            if (customId === 'continue_order_visend') {
+                await interaction.deferUpdate();
+                const setting = await getStoreSetting();
+                if (setting.products && !setting.products.robux_send.enabled) {
+                    return interaction.editReply({ content: '❌ Mohon maaf, layanan ini sedang tidak menerima pesanan.', embeds: [], components: [] });
+                }
+                try {
+                    const configService = require('../services/configService');
+                    const packages = await configService.getProductPackages('SEND');
+                    if (packages.length === 0) {
+                        return interaction.editReply({ content: '❌ Saat ini belum ada paket Robux Visend yang aktif di database.', embeds: [], components: [] });
+                    }
+
+                    const select = new StringSelectMenuBuilder()
+                        .setCustomId('visend_select_package')
+                        .setPlaceholder('Pilih Paket Robux');
+
+                    select.addOptions(
+                        new StringSelectMenuOptionBuilder()
+                            .setLabel('✨ Custom Robux')
+                            .setDescription('Tentukan jumlah Robux yang Anda inginkan')
+                            .setValue('custom:0'),
+                        new StringSelectMenuOptionBuilder()
+                            .setLabel('━━━━━━━━━━━━━━')
+                            .setDescription('Daftar Paket Reguler')
+                            .setValue('divider:0')
                     );
 
-                    await interaction.editReply('Tiket ini akan ditutup dalam 5 detik...');
-                    setTimeout(() => {
-                        interaction.channel.delete().catch(console.error);
-                    }, 5000);
-                } else if (customId === 'staff_delivered') {
-                    const Order = require('../models/Order');
-                    const Ticket = require('../models/Ticket');
-                    
-                    await interaction.deferReply();
-                    
-                    const order = await Order.findOne({ channelId: interaction.channel.id });
-                    if (!order) {
-                        return interaction.editReply('❌ Data pesanan tidak ditemukan untuk channel ini.');
-                    }
-                    
-                    // 1. Update order status
-                    order.status = 'delivered';
-                    await order.save();
+                    packages.forEach(pkg => {
+                        select.addOptions(
+                            new StringSelectMenuOptionBuilder()
+                                .setLabel(`${pkg.amount.toLocaleString('id-ID')} Robux`)
+                                .setDescription(`Harga: Rp ${pkg.price.toLocaleString('id-ID')}`)
+                                .setValue(`${pkg.amount}:${pkg.price}`)
+                        );
+                    });
 
-                    try {
-                        const { triggerLeaderboardUpdate } = require('../scripts/update_leaderboard');
-                        triggerLeaderboardUpdate();
-                    } catch (e) {
-                        console.error('Failed to trigger leaderboard update:', e);
-                    }
-                    
-                    // 2. Update Embed Ticket
-                    const message = interaction.message;
-                    if (message && message.embeds && message.embeds.length > 0) {
-                        const { EmbedBuilder } = require('discord.js');
-                        const oldEmbed = message.embeds[0];
-                        const newEmbed = EmbedBuilder.from(oldEmbed)
-                            .setDescription(oldEmbed.description.replace('🟡 Pending', '🟢 Delivered'))
-                            .setColor('#00ff00');
-                        await message.edit({ embeds: [newEmbed] }).catch(console.error);
-                    }
-                    
-                    // 4. Kirim DM ke customer
-                    try {
-                        const customer = await interaction.client.users.fetch(order.userId);
-                        if (customer) {
-                            const dmMessage = `🎉 Pesanan Robux Anda telah berhasil diproses!\n\n📦 Order ID: ${order.orderId}\n🎮 Username Roblox: ${order.robloxUsername}\n💰 Jumlah Robux: ${order.robuxAmount}\n💵 Total Pembayaran: Rp ${order.price.toLocaleString('id-ID')}\n\nTerima kasih telah mempercayai WinterStore.\nKami berharap dapat melayani Anda kembali.\n\n❄️ WinterStore Team`;
-                            await customer.send(dmMessage);
-                        }
-                    } catch (e) {
-                        console.error('Failed to DM user:', e);
-                    }
-                    
-                    // 5. Kirim embed BARU ke channel log
-                    try {
-                        const logChannel = await interaction.client.channels.fetch('1517637984705319033');
-                        if (logChannel) {
-                            const { EmbedBuilder } = require('discord.js');
-                            const logEmbed = new EmbedBuilder()
-                                .setTitle('✅ Robux Delivery Completed')
-                                .setDescription('Pesanan pelanggan telah berhasil diselesaikan dan dikirim.')
-                                .addFields(
-                                    { name: '📦 Order Information\nOrder ID:', value: order.orderId, inline: false },
-                                    { name: '👤 Customer', value: `<@${order.userId}>`, inline: true },
-                                    { name: '🎮 Roblox Username', value: order.robloxUsername, inline: true },
-                                    { name: '💰 Robux Delivered', value: `${order.robuxAmount} Robux`, inline: false },
-                                    { name: '💵 Total Payment', value: `Rp ${order.price.toLocaleString('id-ID')}`, inline: true },
-                                    { name: '👨💼 Processed By', value: `<@${interaction.user.id}>`, inline: true },
-                                    { name: '🕒 Delivery Time', value: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB', inline: false }
-                                )
-                                .setFooter({ text: 'WinterStore Delivery Logs' })
-                                .setColor('#00ff00');
-                                
-                            await logChannel.send({ embeds: [logEmbed] });
-                        }
-                    } catch (e) {
-                        console.error('Failed to send log:', e);
-                    }
-                    
-                    // Auto close logic
-                    await interaction.editReply('✅ Pesanan telah selesai diproses.\n\nTicket akan ditutup otomatis dalam 60 detik.');
-                    
-                    await Ticket.findOneAndUpdate({ ticketId: interaction.channel.id }, { status: 'closed' });
-                    
-                    setTimeout(() => {
-                        interaction.channel.delete().catch(console.error);
-                    }, 60000);
-                    
-                } else if (customId === 'staff_delivered_product') {
-                    const ProductOrder = require('../models/ProductOrder');
-                    const Ticket = require('../models/Ticket');
-                    
-                    await interaction.deferReply();
-                    
-                    const order = await ProductOrder.findOne({ channelId: interaction.channel.id });
-                    if (!order) {
-                        return interaction.editReply('❌ Data pesanan produk tidak ditemukan untuk channel ini.');
-                    }
-                    
-                    order.status = 'delivered';
-                    await order.save();
+                    const row = new ActionRowBuilder().addComponents(select);
+                    return await interaction.editReply({ content: 'Silakan pilih paket Robux yang ingin Anda beli:', components: [row] });
+                } catch (err) {
+                    logger.error('[InteractionCreate] Error loading Visend packages:', err);
+                    return interaction.editReply({ content: '❌ Gagal memuat daftar paket Robux.', embeds: [], components: [] }).catch(() => {});
+                }
+            }
+            if (customId === 'continue_order_gig') {
+                const setting = await getStoreSetting();
+                if (setting.products && !setting.products.gift_in_game.enabled) {
+                    return interaction.reply({ content: '❌ Mohon maaf, layanan ini sedang tidak menerima pesanan.', ephemeral: true }).catch(() => {});
+                }
+                const modal = new ModalBuilder()
+                    .setCustomId('gig_modal_order')
+                    .setTitle('Order Gift In Game');
 
-                    try {
-                        const { triggerLeaderboardUpdate } = require('../scripts/update_leaderboard');
-                        triggerLeaderboardUpdate();
-                    } catch (e) {
-                        console.error('Failed to trigger leaderboard update:', e);
+                const gameLinkInput = new TextInputBuilder()
+                    .setCustomId('gig_game_link')
+                    .setLabel('Nama / Link Map Roblox')
+                    .setPlaceholder('Contoh: Pet Simulator 99 atau https://...')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
+
+                const gamepassNameInput = new TextInputBuilder()
+                    .setCustomId('gig_gamepass_name')
+                    .setLabel('Nama Gamepass')
+                    .setPlaceholder('Contoh: VIP Gamepass')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
+
+                const amountInput = new TextInputBuilder()
+                    .setCustomId('gig_robux_amount')
+                    .setLabel('Jumlah Robux Gamepass')
+                    .setPlaceholder('Contoh: 500')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
+
+                const usernameInput = new TextInputBuilder()
+                    .setCustomId('roblox_username')
+                    .setLabel('Username Roblox (Tujuan)')
+                    .setPlaceholder('Masukkan username Roblox tujuan Gift')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
+
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(gameLinkInput),
+                    new ActionRowBuilder().addComponents(gamepassNameInput),
+                    new ActionRowBuilder().addComponents(amountInput),
+                    new ActionRowBuilder().addComponents(usernameInput)
+                );
+
+                return await interaction.showModal(modal);
+            }
+
+            // Dynamic Product Buy Button
+            if (customId.startsWith('buy_product_')) {
+                const productId = customId.replace('buy_product_', '');
+                try {
+                    const product = await Product.findById(productId);
+                    if (!product || !product.active) {
+                        return interaction.reply({ content: '❌ Produk tidak ditemukan atau sudah tidak aktif.', ephemeral: true });
                     }
-                    
-                    const message = interaction.message;
-                    if (message && message.embeds && message.embeds.length > 0) {
-                        const { EmbedBuilder } = require('discord.js');
-                        const oldEmbed = message.embeds[0];
-                        const newEmbed = EmbedBuilder.from(oldEmbed)
-                            .setDescription(oldEmbed.description.replace('🟡 Pending', '🟢 Delivered'))
-                            .setColor('#00ff00');
-                        await message.edit({ embeds: [newEmbed] }).catch(console.error);
+
+                    const modal = new ModalBuilder()
+                        .setCustomId(`submit_product_buy:${productId}`)
+                        .setTitle(`Beli ${product.name}`);
+
+                    // Dynamically build fields
+                    const rows = [];
+                    for (const field of product.fields) {
+                        const input = new TextInputBuilder()
+                            .setCustomId(field.customId)
+                            .setLabel(field.label)
+                            .setPlaceholder(field.placeholder || '')
+                            .setStyle(field.style === 'PARAGRAPH' ? TextInputStyle.Paragraph : TextInputStyle.Short)
+                            .setRequired(field.required ?? true);
+
+                        rows.push(new ActionRowBuilder().addComponents(input));
                     }
-                    
-                    try {
-                        const logChannel = await interaction.client.channels.fetch('1517960763698843779');
-                        if (logChannel) {
-                            const { EmbedBuilder } = require('discord.js');
-                            const logEmbed = new EmbedBuilder()
-                                .setTitle('✅ Product Delivery Completed')
-                                .setDescription('Pesanan produk telah berhasil diselesaikan dan dikirim.')
-                                .addFields(
-                                    { name: '📦 Order ID', value: order.orderId, inline: false },
-                                    { name: '👤 Customer', value: `<@${order.userId}>`, inline: true },
-                                    { name: '🛍️ Product', value: order.productName, inline: true },
-                                    { name: '💵 Total Payment', value: `Rp ${order.price.toLocaleString('id-ID')}`, inline: true },
-                                    { name: '👨💼 Processed By', value: `<@${interaction.user.id}>`, inline: true },
-                                    { name: '🕒 Delivery Time', value: new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB', inline: false }
-                                )
-                                .setFooter({ text: 'WinterStore Product Logs' })
-                                .setColor('#00ff00');
-                                
-                            await logChannel.send({ embeds: [logEmbed] });
+
+                    modal.addComponents(rows);
+                    return await interaction.showModal(modal);
+                } catch (err) {
+                    logger.error('[InteractionCreate] Error preparing dynamic buy modal:', err);
+                    return interaction.reply({ content: '❌ Terjadi kesalahan saat memuat form pembelian.', ephemeral: true });
+                }
+            }
+
+            // Copy Username Action
+            if (customId.startsWith('copy_user_')) {
+                const orderId = customId.replace('copy_user_', '');
+                const order = await Order.findOne({ orderId });
+                if (!order) {
+                    return interaction.reply({ content: '❌ Data pesanan tidak ditemukan.', ephemeral: true });
+                }
+                const username = order.details?.username || order.details?.robloxUsername || order.details?.displayName || '-';
+                return interaction.reply({ content: `\`${username}\``, ephemeral: true });
+            }
+
+            // Robux Staff Delivery Action (Vilog & Visend)
+            
+            if (customId.startsWith('vouch_star_')) {
+                const parts = customId.split('_');
+                const rating = parseInt(parts[2]);
+                const orderId = parts.slice(3).join('_');
+                
+                const order = await Order.findOne({ orderId });
+                if (!order) return interaction.reply({ content: '❌ Pesanan tidak ditemukan.', ephemeral: true });
+                if (order.status !== 'success') return interaction.reply({ content: '❌ Anda hanya dapat memberikan ulasan untuk pesanan yang telah sukses.', ephemeral: true });
+                if (order.reviewGiven) return interaction.reply({ content: '❌ Anda sudah memberikan ulasan untuk pesanan ini.', ephemeral: true });
+
+                const modal = new ModalBuilder()
+                    .setCustomId(`vouch_modal_${rating}_${orderId}`)
+                    .setTitle(`Ulasan (${rating} Bintang)`);
+                
+                const commentInput = new TextInputBuilder()
+                    .setCustomId('review_comment')
+                    .setLabel('💬 Ulasan Anda (Opsional)')
+                    .setPlaceholder('Bagikan pengalaman Anda bersama LyraBlox...')
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setMaxLength(300)
+                    .setRequired(false);
+                
+                modal.addComponents(new ActionRowBuilder().addComponents(commentInput));
+                return await interaction.showModal(modal);
+            }
+
+            if (customId.startsWith('robux_deliver_') || customId.startsWith('vilog_deliver_')) {
+                const orderId = customId.replace('robux_deliver_', '').replace('vilog_deliver_', '');
+
+                // MUST defer immediately to prevent interaction timeout (>3s)
+                await interaction.deferReply({ ephemeral: true });
+
+                try {
+                    const staffRoleId = await settingsService.get('staff_role_id');
+                    const adminRoleId = await settingsService.get('admin_role_id');
+                    const ownerRoleId = await settingsService.get('owner_role_id');
+
+                    const isAuthorized = interaction.member.roles.cache.has(staffRoleId) || 
+                                         interaction.member.roles.cache.has(adminRoleId) || 
+                                         interaction.member.roles.cache.has(ownerRoleId) ||
+                                         interaction.member.permissions.has('Administrator');
+
+                    if (!isAuthorized) {
+                        return interaction.editReply('❌ Anda tidak memiliki izin untuk memproses pesanan ini.');
+                    }
+                    // ATOMIC UPDATE: Mengunci transaksi agar tidak terjadi double processing
+                    let order = await Order.findOneAndUpdate(
+                        { orderId, status: { $ne: 'success' } },
+                        { $set: { status: 'success' } },
+                        { new: true }
+                    );
+
+                    if (!order) {
+                        const existing = await Order.findOne({ orderId });
+                        if (!existing) {
+                            return interaction.editReply('❌ Data pesanan tidak ditemukan di database.');
+                        } else {
+                            return interaction.editReply('❌ Pesanan ini sudah diselesaikan sebelumnya.');
                         }
-                    } catch (e) {
-                        console.error('Failed to send product log:', e);
                     }
-                    
-                    await interaction.editReply('✅ Pesanan produk telah selesai diproses.\n\nTicket akan ditutup otomatis dalam 60 detik.');
-                    await Ticket.findOneAndUpdate({ ticketId: interaction.channel.id }, { status: 'closed' });
-                    
-                    setTimeout(() => {
-                        interaction.channel.delete().catch(console.error);
-                    }, 60000);
-                    
-                } else if (customId === 'staff_cancel') {
-                    const Order = require('../models/Order');
-                    const Ticket = require('../models/Ticket');
-                    
-                    await interaction.deferReply();
-                    
-                    const order = await Order.findOne({ channelId: interaction.channel.id });
-                    if (order) {
-                        order.status = 'cancelled';
-                        await order.save();
-                    }
-                    
-                    const message = interaction.message;
-                    if (message && message.embeds && message.embeds.length > 0) {
-                        const { EmbedBuilder } = require('discord.js');
-                        const oldEmbed = message.embeds[0];
-                        const newEmbed = EmbedBuilder.from(oldEmbed)
-                            .setDescription(oldEmbed.description.replace('🟡 Pending', '🔴 Cancelled'))
-                            .setColor('#ff0000');
-                        await message.edit({ embeds: [newEmbed] }).catch(console.error);
-                    }
-                    
-                    await interaction.editReply('❌ Pesanan telah dibatalkan.\n\nTicket akan ditutup otomatis dalam 10 detik.');
-                    await Ticket.findOneAndUpdate({ ticketId: interaction.channel.id }, { status: 'closed' });
-                    
-                    setTimeout(() => {
-                        interaction.channel.delete().catch(console.error);
-                    }, 10000);
-                } else if (customId === 'staff_cancel_product') {
-                    const ProductOrder = require('../models/ProductOrder');
-                    const Ticket = require('../models/Ticket');
-                    const Product = require('../models/Product');
-                    const { updateProductEmbed } = require('../services/productService');
-                    
-                    await interaction.deferReply();
-                    
-                    const order = await ProductOrder.findOne({ channelId: interaction.channel.id });
-                    if (order) {
-                        order.status = 'cancelled';
-                        await order.save();
+
+                    // Update Voice Status
+                    const voiceStatusService = require('../services/voiceStatusService');
+                    voiceStatusService.updateAllVoiceStatuses(interaction.client);
+
+                    // Bulk support: Find all other pending orders in this ticket and mark them success too
+                    const pendingOrders = await Order.find({ channelId: interaction.channel.id, status: { $ne: 'success' } });
+                    if (pendingOrders.length > 0) {
+                        await Order.updateMany(
+                            { channelId: interaction.channel.id, status: { $ne: 'success' } },
+                            { $set: { status: 'success' } }
+                        );
                         
-                        const product = await Product.findOne({ name: order.productName });
-                        if (product) {
-                            product.stock += 1;
-                            await product.save();
-                            await updateProductEmbed(interaction.client, interaction.guild.id);
-                        }
-                    }
-                    
-                    const message = interaction.message;
-                    if (message && message.embeds && message.embeds.length > 0) {
-                        const { EmbedBuilder } = require('discord.js');
-                        const oldEmbed = message.embeds[0];
-                        const newEmbed = EmbedBuilder.from(oldEmbed)
-                            .setDescription(oldEmbed.description.replace('🟡 Pending', '🔴 Cancelled'))
-                            .setColor('#ff0000');
-                        await message.edit({ embeds: [newEmbed] }).catch(console.error);
-                    }
-                    
-                    await interaction.editReply('❌ Pesanan produk telah dibatalkan dan stok telah dikembalikan.\n\nTicket akan ditutup otomatis dalam 10 detik.');
-                    await Ticket.findOneAndUpdate({ ticketId: interaction.channel.id }, { status: 'closed' });
-                    
-                    setTimeout(() => {
-                        interaction.channel.delete().catch(console.error);
-                    }, 10000);
-                } else if (customId.startsWith('check_eligibility_')) {
-                    await interaction.deferReply({ ephemeral: true });
-                    const targetDiscordId = customId.replace('check_eligibility_', '');
-                    
-                    const User = require('../models/User');
-                    const dbUser = await User.findOne({ discordId: targetDiscordId });
-                    
-                    if (!dbUser) {
-                        return interaction.editReply('❌ Data user tidak ditemukan di database.');
-                    }
-                    
-                    const groupId = process.env.GROUP_ID;
-                    if (groupId && dbUser.robloxId) {
-                        try {
-                            const noblox = require('noblox.js');
-                            const rank = await noblox.getRankInGroup(parseInt(groupId), dbUser.robloxId).catch(() => 0);
-                            if (rank === 0) {
-                                return interaction.editReply(`⚠️ Akun Roblox **@${dbUser.robloxUsername}** belum bergabung ke grup Roblox kami. Silakan masuk ke grup terlebih dahulu untuk bisa menerima payout!`);
-                            }
-                        } catch (err) {
-                            console.error('Failed to check group rank:', err);
-                        }
-                    }
-                    
-                    const joinedAt = dbUser.createdAt || new Date();
-                    const diffTime = Math.abs(new Date() - joinedAt);
-                    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-                    
-                    const roleId = process.env.ELIGIBLE_ROLE_ID;
-                    const member = await interaction.guild.members.fetch(targetDiscordId).catch(() => null);
-                    
-                    if (diffDays >= 14 || dbUser.eligibleForPayout) {
-                        dbUser.eligibleForPayout = true;
-                        await dbUser.save();
-                        
-                        if (roleId && member) {
-                            try {
-                                if (!member.roles.cache.has(roleId)) {
-                                    await member.roles.add(roleId);
+                        const allOrders = [order, ...pendingOrders];
+                        const totalPrice = allOrders.reduce((sum, o) => sum + o.price, 0);
+                        let totalRobux = allOrders.reduce((sum, o) => {
+                            let amt = 0;
+                            if (o.details) {
+                                const pKey = Object.keys(o.details).find(k => k.toLowerCase().includes('amount') || k.toLowerCase().includes('qty') || k.toLowerCase().includes('paket') || k.toLowerCase().includes('robux'));
+                                if (pKey) {
+                                    const val = o.details[pKey].toString().replace(/[^0-9]/g, '');
+                                    amt = parseInt(val, 10) || 0;
                                 }
-                            } catch (err) {
-                                console.error('Failed to add eligible role:', err);
                             }
-                        }
+                            return sum + amt;
+                        }, 0);
                         
-                        const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-                        const oldEmbed = interaction.message.embeds[0];
-                        if (oldEmbed) {
-                            const embed = EmbedBuilder.from(oldEmbed);
-                            const fields = oldEmbed.fields.map(f => {
-                                if (f.name.includes('Eligible Date')) {
-                                    return { name: '✅ Status Eligibility', value: '🎉 **ELIGIBLE (Sudah +14 Hari)**', inline: true };
+                        order.price = totalPrice;
+                        if (order.details) {
+                            const pKey = Object.keys(order.details).find(k => k.toLowerCase().includes('amount') || k.toLowerCase().includes('qty') || k.toLowerCase().includes('paket') || k.toLowerCase().includes('robux'));
+                            if (pKey) order.details[pKey] = `${totalRobux} Robux`;
+                        }
+                    }
+ 
+                    // Update ticket message embed inside channel to Success
+                    const originalMsg = interaction.message;
+                    if (originalMsg && originalMsg.embeds.length > 0) {
+                        const oldEmbed = originalMsg.embeds[0];
+                        const newEmbed = EmbedBuilder.from(oldEmbed)
+                            .setColor('#00ff00');
+                        
+                        if (oldEmbed.description) {
+                            const desc = oldEmbed.description;
+                            const updatedDesc = desc.replace(/Status:\s*🟢\s*\*Paid\*/i, 'Status: **✅ Success**')
+                                                   .replace(/Status:\s*🟢\s*Paid/i, 'Status: **✅ Success**')
+                                                   .replace(/Status:\s*🟡\s*\*Menunggu Pembayaran\*/i, 'Status: **✅ Success**')
+                                                   .replace(/Status:\s*🟡\s*Menunggu Pembayaran/i, 'Status: **✅ Success**');
+                            newEmbed.setDescription(updatedDesc);
+                        }
+ 
+                        if (oldEmbed.fields && oldEmbed.fields.length > 0) {
+                            const updatedFields = oldEmbed.fields.map(f => {
+                                if (f.name.toLowerCase().includes('status')) {
+                                    return { name: f.name, value: '✅ Success', inline: f.inline };
                                 }
                                 return f;
                             });
-                            embed.setFields(fields);
-                            embed.setColor('#00ff00');
-                            
-                            const row = new ActionRowBuilder().addComponents(
-                                new ButtonBuilder()
-                                    .setCustomId(`check_eligibility_${targetDiscordId}`)
-                                    .setLabel('✅ Eligible')
-                                    .setStyle(ButtonStyle.Success)
-                                    .setDisabled(true)
-                            );
-                            
-                            await interaction.message.edit({ embeds: [embed], components: [row] }).catch(console.error);
+                            newEmbed.setFields(updatedFields);
                         }
-                        
-                        return interaction.editReply('🎉 Sukses! Akun telah terverifikasi sebagai **Eligible** dan role telah diberikan.');
-                    } else {
-                        return interaction.editReply(`⏳ Akun belum memenuhi syarat durasi server (butuh 14 hari).\n\n• Roblox: **@${dbUser.robloxUsername}**\n• Durasi bergabung: **${diffDays} hari**\n• Sisa waktu: **${14 - diffDays} hari** lagi.`);
+ 
+                        const closeBtn = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder().setCustomId('ticket_close').setLabel('Close Ticket').setStyle(ButtonStyle.Danger)
+                        );
+                        await originalMsg.edit({ embeds: [newEmbed], components: [closeBtn] }).catch(() => {});
                     }
-                } else if (customId === 'admin_clone_server') {
-                    const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
-                    const modal = new ModalBuilder()
-                        .setCustomId('admin_clone_modal')
-                        .setTitle('Sync / Clone Server');
-                    const targetInput = new TextInputBuilder()
-                        .setCustomId('target_guild_id')
-                        .setLabel('Target Guild ID (ID Server Baru)')
-                        .setPlaceholder('Masukkan ID server baru tempat menyalin...')
-                        .setStyle(TextInputStyle.Short)
-                        .setRequired(true)
-                        .setMinLength(15)
-                        .setMaxLength(25);
-                    modal.addComponents(new ActionRowBuilder().addComponents(targetInput));
-                    return await interaction.showModal(modal);
-                } else if (customId === 'admin_wipe_server') {
-                    const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
-                    const modal = new ModalBuilder()
-                        .setCustomId('admin_wipe_modal')
-                        .setTitle('Wipe Server Target');
-                    const targetInput = new TextInputBuilder()
-                        .setCustomId('target_guild_id')
-                        .setLabel('Target Guild ID')
-                        .setPlaceholder('Masukkan ID server target yang akan dibersihkan...')
-                        .setStyle(TextInputStyle.Short)
-                        .setRequired(true)
-                        .setMinLength(15)
-                        .setMaxLength(25);
-                    const confirmInput = new TextInputBuilder()
-                        .setCustomId('confirm_wipe')
-                        .setLabel('Ketik "WIPE" untuk mengonfirmasi')
-                        .setPlaceholder('WIPE')
-                        .setStyle(TextInputStyle.Short)
-                        .setRequired(true)
-                        .setMinLength(4)
-                        .setMaxLength(4);
-                    modal.addComponents(
-                        new ActionRowBuilder().addComponents(targetInput),
-                        new ActionRowBuilder().addComponents(confirmInput)
+
+                    // Transaction Log — only on Success
+                    const logChannelId = await settingsService.get('log_channel_id', '1534624789065498795');
+                    const logChannel = logChannelId ? await client.channels.fetch(logChannelId).catch(() => null) : null;
+                    if (logChannel) {
+                        const customer = await client.users.fetch(order.userId).catch(() => null);
+                        const avatarURL = customer ? customer.displayAvatarURL({ dynamic: true, size: 256 }) : client.user.defaultAvatarURL;
+
+                        // Format time in WIB
+                        const now = new Date();
+                        const timeStr = now.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', day: '2-digit', month: 'short', year: 'numeric' }) +
+                                        '\n' + now.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', hour12: false }) + ' WIB';
+
+                        const logEmbed = new EmbedBuilder()
+                            .setTitle('🧾 Transaction Completed')
+                            .setDescription('Pesanan telah berhasil diproses oleh Staff LyraBlox.\n━━━━━━━━━━━━━━━━━━━━━━')
+                            .setThumbnail(avatarURL)
+                            .addFields(
+                                { name: '👤 Customer', value: `<@${order.userId}>`, inline: true },
+                                { name: '👨‍💼 Staff', value: `<@${interaction.user.id}>`, inline: true },
+                                { name: '\u200b', value: '\u200b', inline: true },
+                                { name: '📦 Produk', value: order.productName || 'Robux Via Login', inline: true },
+                                ...(order.productName === 'Gift In Game' ? [
+                                    { name: '🎮 Game', value: order.details?.gameLink || '-', inline: true },
+                                    { name: '🎁 Gamepass', value: order.details?.gamepassName || '-', inline: true },
+                                    { name: '💎 Jumlah', value: `${order.details?.amount || 0} Robux`, inline: true },
+                                    { name: '💰 Total', value: `Rp ${order.price.toLocaleString('id-ID')}`, inline: true },
+                                    { name: '📌 Status', value: '✅ Success', inline: true },
+                                ] : [
+                                    { name: '🎁 Paket', value: order.details?.package === 'Custom' ? 'Custom' : `${order.details?.amount || 0} Robux`, inline: true },
+                                    ...(order.details?.package === 'Custom' ? [{ name: '💎 Jumlah', value: `${order.details?.amount || 0} Robux`, inline: true }] : [{ name: '\u200b', value: '\u200b', inline: true }]),
+                                    { name: '💰 Total', value: `Rp ${order.price.toLocaleString('id-ID')}`, inline: true },
+                                    { name: '📌 Status', value: '✅ Success', inline: true },
+                                    { name: '\u200b', value: '\u200b', inline: true },
+                                ]),
+                                { name: '🆔 Order ID', value: `\`${order.orderId}\``, inline: true },
+                                { name: '🕒 Waktu', value: timeStr, inline: true },
+                                { name: '\u200b', value: '\u200b', inline: true }
+                            )
+                            .setFooter({ text: 'LyraBlox • Transaction Log' })
+                            .setColor('#2ecc71')
+                            .setTimestamp();
+
+                        await logChannel.send({ embeds: [logEmbed] }).catch(() => {});
+                    }
+
+                    // Send Customer DM
+                    try {
+                        const customer = await client.users.fetch(order.userId);
+                        if (customer) {
+                            const brandingName = await settingsService.get('branding_name', 'LyraBlox');
+                            const productNameDisplay = order.productName === 'Gift In Game' ? 'Gift In Game' : (order.productName || 'Robux Via Login');
+                            const dmMsg = `🎉 **Pesanan ${productNameDisplay} Anda telah berhasil diproses!**\n\n` +
+                                          `📦 **Order ID:** ${order.orderId}\n` +
+                                          `💰 **Jumlah:** ${order.details?.amount || 0} Robux\n` +
+                                          `💵 **Total Pembayaran:** Rp ${order.price.toLocaleString('id-ID')}\n\n` +
+                                          `Terima kasih telah mempercayai **${brandingName}**! ✨`;
+                            await customer.send(dmMsg);
+                        }
+                    } catch (e) {
+                        logger.warn(`Failed to DM customer ${order.userId}:`, e.message);
+                    }
+
+                    await interaction.editReply('✅ Pesanan berhasil diproses.');
+                    await interaction.channel.send(
+                        `✅ **Pesanan berhasil diproses.**\n` +
+                        `Terima kasih telah berbelanja di LyraBlox.\n\n` +
+                        `Ticket akan ditutup otomatis dalam 60 detik.`
                     );
-                    return await interaction.showModal(modal);
-                } else if (customId === 'admin_autogen_server') {
-                    const { StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ActionRowBuilder } = require('discord.js');
-                    const select = new StringSelectMenuBuilder()
-                        .setCustomId('admin_select_template')
-                        .setPlaceholder('Pilih template server yang ingin di-generate...')
-                        .addOptions(
-                            new StringSelectMenuOptionBuilder()
-                                .setLabel('Roblox Store')
-                                .setDescription('Template server toko Robux (sama seperti server ini)')
-                                .setValue('roblox_store')
-                                .setEmoji('💎'),
-                            new StringSelectMenuOptionBuilder()
-                                .setLabel('OwO Bot Server')
-                                .setDescription('Template server khusus bot OwO (grind, media, chat)')
-                                .setValue('owo_bot')
-                                .setEmoji('🤖')
-                        );
-                    const row = new ActionRowBuilder().addComponents(select);
-                    await interaction.reply({ content: 'Pilih salah satu template server di bawah ini untuk di-generate secara otomatis:', components: [row], ephemeral: true });
-                } else if (customId === 'admin_layout_update') {
-                    const { StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ActionRowBuilder } = require('discord.js');
-                    const select = new StringSelectMenuBuilder()
-                        .setCustomId('admin_select_layout')
-                        .setPlaceholder('Pilih Aesthetic Layout...')
-                        .addOptions(
-                            new StringSelectMenuOptionBuilder().setLabel('Gamer / Tech').setDescription('⚡ [CATEGORY] | >_ channel-name').setValue('gamer').setEmoji('⚡'),
-                            new StringSelectMenuOptionBuilder().setLabel('Elegant Diamond').setDescription('✦・[CATEGORY] | ❖ channel-name ❖').setValue('diamond').setEmoji('💎'),
-                            new StringSelectMenuOptionBuilder().setLabel('Royal Fantasy').setDescription('✦ [CATEGORY] ✦ | ⧼ channel-name ⧽').setValue('royal').setEmoji('👑'),
-                            new StringSelectMenuOptionBuilder().setLabel('Connected Nodes').setDescription('🌸 [CATEGORY] | ⑆ channel-name ⑆').setValue('nodes').setEmoji('🌸'),
-                            new StringSelectMenuOptionBuilder().setLabel('Tree Branch').setDescription('✦・[CATEGORY] | ┣・channel-name').setValue('branch').setEmoji('🌿'),
-                            new StringSelectMenuOptionBuilder().setLabel('Undo / Restore Default').setDescription('Mengembalikan layout ke emote dan titik dasar.').setValue('restore').setEmoji('↩️')
-                        );
-                    const row = new ActionRowBuilder().addComponents(select);
-                    await interaction.reply({ content: '**🎨 Server Layout Manager**\nPilih style layout yang ingin diterapkan pada seluruh channel dan kategori di server ini.', components: [row], ephemeral: true });
-                } else if (customId === 'admin_resend_panels') {
-                    await interaction.deferReply({ ephemeral: true });
-                    const { updateStoreEmbed } = require('../services/storeService');
-                    const { updateProductEmbed } = require('../services/productService');
-                    const { ActionRowBuilder } = require('discord.js');
-                    await updateStoreEmbed(interaction.client);
-                    await updateProductEmbed(interaction.client, interaction.guild.id);
-                    
-                    const verifyChannel = interaction.guild.channels.cache.find(c => c.type === 0 && (c.name.includes('verify') || c.name.includes('verif') || c.name.includes('konfirmasi')));
-                    if (verifyChannel) {
-                        const { EmbedBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-                        const embed = new EmbedBuilder()
-                            .setTitle('🔐 Verifikasi Akun Roblox')
-                            .setDescription('Silakan klik tombol di bawah ini untuk memverifikasi akun Roblox Anda dan mengecek kelayakan Payout.\n\n**Syarat Payout:**\n1. Harus tergabung di Community Roblox kami.\n2. Harus sudah berada di Community Roblox kami selama minimal 14 Hari (Server Discord ini hanya untuk antrean / order Robux).')
-                            .setColor('#0099ff');
-                        const row = new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId('verify_btn').setLabel('Verifikasi Sekarang').setStyle(ButtonStyle.Success).setEmoji('🔗')
-                        );
-                        await verifyChannel.send({ embeds: [embed], components: [row] }).catch(console.error);
-                    }
-                    const ticketChannel = interaction.guild.channels.cache.find(c => c.type === 0 && (c.name.includes('ticket') || c.name.includes('support') || c.name.includes('bantuan')));
-                    if (ticketChannel) {
-                        const { EmbedBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-                        const embed = new EmbedBuilder()
-                            .setColor('#0099ff')
-                            .setTitle('WinterBot Support')
-                            .setDescription('Silakan klik tombol di bawah ini untuk membuat tiket baru sesuai kebutuhan Anda.');
-                        const row = new ActionRowBuilder().addComponents(
-                            new ButtonBuilder().setCustomId('ticket_support').setLabel('Support').setEmoji('🎫').setStyle(ButtonStyle.Primary),
-                            new ButtonBuilder().setCustomId('ticket_order').setLabel('Order').setEmoji('🛒').setStyle(ButtonStyle.Success),
-                            new ButtonBuilder().setCustomId('ticket_ugc').setLabel('Custom UGC').setEmoji('🎨').setStyle(ButtonStyle.Secondary),
-                            new ButtonBuilder().setCustomId('ticket_report').setLabel('Report').setEmoji('🐛').setStyle(ButtonStyle.Danger)
-                        );
-                        await ticketChannel.send({ embeds: [embed], components: [row] }).catch(console.error);
-                    }
-                    await interaction.editReply('✅ Panel-panel berhasil dikirim ulang ke channel masing-masing!');
-                } else if (customId === 'store_refresh') {
-                    await interaction.deferReply({ ephemeral: true });
-                    const StoreConfig = require('../models/StoreConfig');
-                    const config = await StoreConfig.findOne({ guildId: interaction.guild.id });
-                    if (config) {
-                        config.lastAvailable = null;
-                        config.lastPending = null;
-                        await config.save();
-                    }
-                    const { updateStoreEmbed } = require('../services/storeService');
-                    await updateStoreEmbed(interaction.client);
-                    await interaction.editReply('✅ Stock berhasil direfresh!');
-                } else if (customId === 'store_packages') {
-                    await interaction.deferReply({ ephemeral: true });
-                    const StoreConfig = require('../models/StoreConfig');
-                    const config = await StoreConfig.findOne({ guildId: interaction.guild.id });
-                    if (!config || config.packages.length === 0) {
-                        return interaction.editReply('Belum ada paket yang tersedia.');
-                    }
-                    const sortedPackages = [...config.packages].sort((a, b) => a.amount - b.amount);
-                    let packageList = '📋 **Daftar Paket Robux**\n\n';
-                    sortedPackages.forEach(pkg => {
-                        packageList += `🔹 **${pkg.amount} Robux** = Rp ${pkg.price.toLocaleString('id-ID')}\n`;
-                    });
-                    await interaction.editReply(packageList);
-                } else if (customId === 'store_order') {
-                    const StoreConfig = require('../models/StoreConfig');
-                    const config = await StoreConfig.findOne({ guildId: interaction.guild.id });
-                    
-                    const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
-                    
-                    if (!config || config.packages.length === 0) {
-                        const modal = new ModalBuilder()
-                            .setCustomId('store_order_modal')
-                            .setTitle('Order Robux Manual');
-                            
-                        const robuxInput = new TextInputBuilder()
-                            .setCustomId('robux_amount')
-                            .setLabel('Jumlah Robux')
-                            .setStyle(TextInputStyle.Short)
-                            .setRequired(true);
-                            
-                        const usernameInput = new TextInputBuilder()
-                            .setCustomId('roblox_username')
-                            .setLabel('Username Roblox')
-                            .setPlaceholder('Pastikan benar! Kesalahan username bukan tanggung jawab admin.')
-                            .setStyle(TextInputStyle.Short)
-                            .setRequired(true);
-                            
-                        modal.addComponents(new ActionRowBuilder().addComponents(robuxInput), new ActionRowBuilder().addComponents(usernameInput));
-                        return interaction.showModal(modal);
-                    }
-                    
-                    const select = new StringSelectMenuBuilder()
-                        .setCustomId('store_order_select')
-                        .setPlaceholder('Pilih paket Robux yang ingin dibeli');
-                        
-                    const sortedPackages = [...config.packages].sort((a, b) => a.amount - b.amount);
-                    sortedPackages.forEach(pkg => {
-                        select.addOptions(
-                            new StringSelectMenuOptionBuilder()
-                                .setLabel(`${pkg.amount} Robux`)
-                                .setDescription(`Harga: Rp ${pkg.price.toLocaleString('id-ID')}`)
-                                .setValue(pkg.amount.toString())
-                        );
-                    });
-                    
-                    select.addOptions(
-                        new StringSelectMenuOptionBuilder()
-                            .setLabel('Input Manual')
-                            .setDescription('Masukkan jumlah Robux secara manual')
-                            .setValue('manual')
-                    );
-                    
-                    const row = new ActionRowBuilder().addComponents(select);
-                    await interaction.reply({ content: 'Pilih paket yang ingin Anda beli, atau pilih Input Manual:', components: [row], ephemeral: true });
-                } else if (customId === 'product_buy_btn') {
-                    await interaction.deferReply({ ephemeral: true });
-                    const Product = require('../models/Product');
-                    const products = await Product.find({ active: true });
-                    
-                    if (products.length === 0) {
-                        return interaction.editReply('Toko saat ini tidak memiliki produk aktif.');
-                    }
-                    
-                    const { StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ActionRowBuilder } = require('discord.js');
-                    const select = new StringSelectMenuBuilder()
-                        .setCustomId('product_buy_select')
-                        .setPlaceholder('Pilih produk yang ingin dibeli');
-                        
-                    products.forEach(p => {
-                        select.addOptions(
-                            new StringSelectMenuOptionBuilder()
-                                .setLabel(p.name)
-                                .setDescription(`Harga: Rp ${p.price.toLocaleString('id-ID')} | Stok: ${p.stock}`)
-                                .setValue(p.name)
-                        );
-                    });
-                    
-                    const row = new ActionRowBuilder().addComponents(select);
-                    await interaction.editReply({ content: 'Pilih produk yang ingin Anda beli dari daftar di bawah ini:', components: [row] });
+                    const reviewPanel = buildReviewPanel(order.orderId);
+                    await interaction.channel.send(reviewPanel);
+                    try { const c = await client.users.fetch(order.userId); if(c) await c.send(reviewPanel).catch(()=>{}); } catch(e) {}
+                    await Ticket.findOneAndUpdate({ ticketId: interaction.channel.id }, { status: 'closed' });
+
+                    setTimeout(() => {
+                        interaction.channel.delete().catch(() => {});
+                    }, 60000);
+
+                } catch (err) {
+                    logger.error('[InteractionCreate] Error delivering Vilog order:', err);
+                    return interaction.editReply('❌ Terjadi kesalahan saat memproses pengiriman.');
                 }
-            } catch (error) {
-                console.error('Button Interaction Error:', error);
+                return;
+            }
+
+            // Standard Product buy actions
+            if (customId.startsWith('order_deliver_') || customId.startsWith('order_cancel_')) {
+                const isDeliver = customId.startsWith('order_deliver_');
+                const orderId = customId.replace(isDeliver ? 'order_deliver_' : 'order_cancel_', '');
+
+                const staffRoleId = await settingsService.get('staff_role_id');
+                const adminRoleId = await settingsService.get('admin_role_id');
+                const ownerRoleId = await settingsService.get('owner_role_id');
+
+                const member = interaction.member;
+                const isAuthorized = member.roles.cache.has(staffRoleId) || 
+                                     member.roles.cache.has(adminRoleId) || 
+                                     member.roles.cache.has(ownerRoleId) ||
+                                     member.permissions.has('Administrator');
+
+                if (!isAuthorized) {
+                    return interaction.reply({ content: '❌ Anda tidak memiliki izin untuk memproses pesanan ini.', ephemeral: true });
+                }
+
+                await interaction.deferReply();
+
                 try {
-                    if (interaction.replied || interaction.deferred) {
-                        await interaction.followUp({ content: 'Terdapat kesalahan memproses tombol ini!', ephemeral: true });
+                    const brandingName = await settingsService.get('branding_name', 'LyraBlox');
+
+                    let order;
+                    if (isDeliver) {
+                        // ATOMIC UPDATE: Mengunci status menjadi success
+                        order = await Order.findOneAndUpdate(
+                            { orderId, status: { $in: ['pending', 'paid'] } },
+                            { $set: { status: 'success' } },
+                            { new: true }
+                        );
+                        
+                        if (order) {
+                            const pendingOrders = await Order.find({ channelId: interaction.channel.id, status: { $in: ['pending', 'paid'] } });
+                            if (pendingOrders.length > 0) {
+                                await Order.updateMany(
+                                    { channelId: interaction.channel.id, status: { $in: ['pending', 'paid'] } },
+                                    { $set: { status: 'success' } }
+                                );
+                                
+                                const allOrders = [order, ...pendingOrders];
+                                const totalPrice = allOrders.reduce((sum, o) => sum + o.price, 0);
+                                let totalRobux = allOrders.reduce((sum, o) => {
+                                    let amt = 0;
+                                    if (o.details) {
+                                        const pKey = Object.keys(o.details).find(k => k.toLowerCase().includes('amount') || k.toLowerCase().includes('qty') || k.toLowerCase().includes('paket') || k.toLowerCase().includes('robux'));
+                                        if (pKey) {
+                                            const val = o.details[pKey].toString().replace(/[^0-9]/g, '');
+                                            amt = parseInt(val, 10) || 0;
+                                        }
+                                    }
+                                    return sum + amt;
+                                }, 0);
+                                
+                                order.price = totalPrice;
+                                if (order.details) {
+                                    const pKey = Object.keys(order.details).find(k => k.toLowerCase().includes('amount') || k.toLowerCase().includes('qty') || k.toLowerCase().includes('paket') || k.toLowerCase().includes('robux'));
+                                    if (pKey) order.details[pKey] = `${totalRobux} Robux`;
+                                }
+                            }
+                        }
                     } else {
-                        await interaction.reply({ content: 'Terdapat kesalahan memproses tombol ini!', ephemeral: true });
+                        // ATOMIC DELETE: Menghapus jika status masih valid
+                        order = await Order.findOneAndDelete(
+                            { orderId, status: { $in: ['pending', 'paid'] } }
+                        );
                     }
-                } catch (replyError) {
-                    console.error('Failed to send button error message:', replyError);
+
+                    // Update Voice Status
+                    const voiceStatusService = require('../services/voiceStatusService');
+                    voiceStatusService.updateAllVoiceStatuses(interaction.client);
+
+                    if (!order) {
+                        const existing = await Order.findOne({ orderId });
+                        if (!existing) return interaction.editReply('❌ Data pesanan tidak ditemukan di database.');
+                        return interaction.editReply(`❌ Pesanan ini sudah berstatus: **${existing.status.toUpperCase()}**.`);
+                    }
+
+                    if (isDeliver) {
+
+                        // Send DM to Customer
+                        try {
+                            const customer = await client.users.fetch(order.userId);
+                            if (customer) {
+                                const dmMsg = `🎉 **Pesanan Anda telah berhasil diproses!**\n\n` +
+                                              `📦 **Order ID:** ${order.orderId}\n` +
+                                              `🛍️ **Produk:** ${order.productName}\n` +
+                                              `💵 **Total Pembayaran:** Rp ${order.price.toLocaleString('id-ID')}\n\n` +
+                                              `Terima kasih telah mempercayai **${brandingName}**.\n` +
+                                              `Kami berharap dapat melayani Anda kembali! ✨`;
+                                await customer.send(dmMsg);
+                            }
+                        } catch (e) {
+                            logger.warn(`Failed to DM customer ${order.userId}:`, e.message);
+                        }
+
+                        // Update ticket message embed
+                        const originalMsg = interaction.message;
+                        if (originalMsg && originalMsg.embeds.length > 0) {
+                            const oldEmbed = originalMsg.embeds[0];
+                            const newEmbed = EmbedBuilder.from(oldEmbed)
+                                .setColor('#00ff00');
+                            
+                            if (oldEmbed.description) {
+                                const desc = oldEmbed.description;
+                                const updatedDesc = desc.replace(/Status:\s*🟡\s*\*Menunggu Pembayaran\*/i, 'Status: **✅ Success**')
+                                                       .replace(/Status:\s*🟡\s*Menunggu Pembayaran/i, 'Status: **✅ Success**')
+                                                       .replace(/Status:\s*🟢\s*\*Paid\*/i, 'Status: **✅ Success**')
+                                                       .replace(/Status:\s*🟢\s*Paid/i, 'Status: **✅ Success**')
+                                                       .replace('🟡 Pending', '✅ Success')
+                                                       .replace('🟢 Delivered / Completed', '✅ Success');
+                                newEmbed.setDescription(updatedDesc);
+                            }
+
+                            if (oldEmbed.fields && oldEmbed.fields.length > 0) {
+                                const updatedFields = oldEmbed.fields.map(f => {
+                                    if (f.name.toLowerCase().includes('status')) {
+                                        return { name: f.name, value: '✅ Success', inline: f.inline };
+                                    }
+                                    return f;
+                                });
+                                newEmbed.setFields(updatedFields);
+                            }
+                            
+                            const closeBtn = new ActionRowBuilder().addComponents(
+                                new ButtonBuilder().setCustomId('ticket_close').setLabel('Close Ticket').setStyle(ButtonStyle.Danger)
+                            );
+
+                            await originalMsg.edit({ embeds: [newEmbed], components: [closeBtn] }).catch(() => {});
+                        }
+
+                        // Transaction Log — only on Success
+                        const logChannelId = await settingsService.get('log_channel_id', '1534624789065498795');
+                        const logChannel = logChannelId ? await client.channels.fetch(logChannelId).catch(() => null) : null;
+                        if (logChannel) {
+                            const customer = await client.users.fetch(order.userId).catch(() => null);
+                            const avatarURL = customer ? customer.displayAvatarURL({ dynamic: true, size: 256 }) : client.user.defaultAvatarURL;
+
+                            // Extract robux packet/amount if present
+                            let robuxPaket = '-';
+                            if (order.details) {
+                                const pKey = Object.keys(order.details).find(k => k.toLowerCase().includes('amount') || k.toLowerCase().includes('qty') || k.toLowerCase().includes('paket') || k.toLowerCase().includes('robux'));
+                                if (pKey) robuxPaket = order.details[pKey];
+                            }
+
+                            // Format time in WIB
+                            const now = new Date();
+                            const timeStr = now.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', day: '2-digit', month: 'short', year: 'numeric' }) +
+                                            '\n' + now.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', hour12: false }) + ' WIB';
+
+                            const logEmbed = new EmbedBuilder()
+                                .setTitle('🧾 Transaction Completed')
+                                .setDescription('Pesanan telah berhasil diproses oleh Staff LyraBlox.\n━━━━━━━━━━━━━━━━━━━━━━')
+                                .setThumbnail(avatarURL)
+                                .addFields(
+                                    { name: '👤 Customer', value: `<@${order.userId}>`, inline: true },
+                                    { name: '👨‍💼 Staff', value: `<@${interaction.user.id}>`, inline: true },
+                                    { name: '\u200b', value: '\u200b', inline: true },
+                                    { name: '📦 Produk', value: order.productName, inline: true },
+                                    { name: '🎁 Paket', value: `${robuxPaket}`, inline: true },
+                                    { name: '\u200b', value: '\u200b', inline: true },
+                                    { name: '💰 Total', value: `Rp ${order.price.toLocaleString('id-ID')}`, inline: true },
+                                    { name: '📌 Status', value: '✅ Success', inline: true },
+                                    { name: '\u200b', value: '\u200b', inline: true },
+                                    { name: '🆔 Order ID', value: `\`${order.orderId}\``, inline: true },
+                                    { name: '🕒 Waktu', value: timeStr, inline: true },
+                                    { name: '\u200b', value: '\u200b', inline: true }
+                                )
+                                .setFooter({ text: 'LyraBlox • Transaction Log' })
+                                .setColor('#2ecc71')
+                                .setTimestamp();
+
+                            await logChannel.send({ embeds: [logEmbed] }).catch(() => {});
+                            
+                            // Update Leaderboard
+                            try {
+                                const leaderboardService = require('../services/leaderboardService');
+                                await leaderboardService.addTransaction(order.userId, order.price);
+                                await leaderboardService.updateLeaderboard(client);
+                                await leaderboardService.updateCustomerTier(client, order.userId);
+                            } catch (err) {
+                                logger.error('[InteractionCreate] Error updating leaderboard:', err);
+                            }
+                        }
+
+                        await interaction.editReply('✅ Pesanan berhasil diproses.');
+                        await interaction.channel.send('✅ **Pesanan telah selesai diproses.**\n\nTicket ini akan ditutup otomatis dalam 60 detik.');
+                        const reviewPanel = buildReviewPanel(order.orderId);
+                        await interaction.channel.send(reviewPanel);
+                        try { const c = await client.users.fetch(order.userId); if(c) await c.send(reviewPanel).catch(()=>{}); } catch(e) {}
+                        await Ticket.findOneAndUpdate({ ticketId: interaction.channel.id }, { status: 'closed' });
+
+                        setTimeout(() => {
+                            interaction.channel.delete().catch(() => {});
+                        }, 60000);
+                    } else {
+                        // Order telah dihapus secara atomic via findOneAndDelete di atas
+                        order.status = 'cancelled';
+
+                        // Send DM to Customer
+                        try {
+                            const customer = await client.users.fetch(order.userId);
+                            if (customer) {
+                                const dmMsg = `❌ **Pesanan Anda telah dibatalkan.**\n\n` +
+                                              `📦 **Order ID:** ${order.orderId}\n` +
+                                              `🛍️ **Produk:** ${order.productName}\n\n` +
+                                              `Jika ada pertanyaan, silakan hubungi admin di server **${brandingName}**.`;
+                                await customer.send(dmMsg);
+                            }
+                        } catch (e) {
+                            logger.warn(`Failed to DM customer ${order.userId}:`, e.message);
+                        }
+
+                        // Update ticket message
+                        const originalMsg = interaction.message;
+                        if (originalMsg && originalMsg.embeds.length > 0) {
+                            const oldEmbed = originalMsg.embeds[0];
+                            const newEmbed = EmbedBuilder.from(oldEmbed)
+                                .setColor('#ff0000');
+                            
+                            if (oldEmbed.description) {
+                                newEmbed.setDescription(
+                                    oldEmbed.description
+                                        .replace('🟡 Pending', '🔴 Cancelled')
+                                        .replace('🟢 Paid', '🔴 Cancelled')
+                                );
+                            }
+
+                            if (oldEmbed.fields && oldEmbed.fields.length > 0) {
+                                const updatedFields = oldEmbed.fields.map(f => {
+                                    if (f.name.toLowerCase().includes('status')) {
+                                        return { name: f.name, value: '🔴 Cancelled', inline: f.inline };
+                                    }
+                                    return f;
+                                });
+                                newEmbed.setFields(updatedFields);
+                            }
+
+                            const closeBtn = new ActionRowBuilder().addComponents(
+                                new ButtonBuilder().setCustomId('ticket_close').setLabel('Close Ticket').setStyle(ButtonStyle.Danger)
+                            );
+
+                            await originalMsg.edit({ embeds: [newEmbed], components: [closeBtn] }).catch(() => {});
+                        }
+
+                        await interaction.editReply('❌ Pesanan telah dibatalkan. Tiket ini akan ditutup otomatis dalam 10 detik.');
+                        await Ticket.findOneAndUpdate({ ticketId: interaction.channel.id }, { status: 'closed' });
+
+                        setTimeout(() => {
+                            interaction.channel.delete().catch(() => {});
+                        }, 10000);
+                    }
+                } catch (err) {
+                    logger.error('[InteractionCreate] Error processing order action:', err);
+                    return interaction.editReply('❌ Terjadi kesalahan saat memproses aksi pesanan.');
                 }
             }
-        } else if (interaction.isStringSelectMenu()) {
-            if (interaction.customId === 'admin_select_layout') {
-                const style = interaction.values[0];
-                const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
-                const modal = new ModalBuilder()
-                    .setCustomId(`admin_layout_modal:${style}`)
-                    .setTitle('Update Server Layout');
-                const targetInput = new TextInputBuilder()
-                    .setCustomId('target_guild_id')
-                    .setLabel('Target Guild ID (ID Server)')
-                    .setPlaceholder('Masukkan ID server yang akan diupdate...')
-                    .setStyle(TextInputStyle.Short)
-                    .setRequired(true)
-                    .setMinLength(15)
-                    .setMaxLength(25);
-                modal.addComponents(new ActionRowBuilder().addComponents(targetInput));
-                return await interaction.showModal(modal);
-            } else if (interaction.customId === 'admin_select_template') {
-                const templateType = interaction.values[0];
-                const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
-                const modal = new ModalBuilder()
-                    .setCustomId(`admin_autogen_modal:${templateType}`)
-                    .setTitle('Generate Server Template');
-                const targetInput = new TextInputBuilder()
-                    .setCustomId('target_guild_id')
-                    .setLabel('Target Guild ID (ID Server Baru)')
-                    .setPlaceholder('Masukkan ID server baru tempat men-generate...')
-                    .setStyle(TextInputStyle.Short)
-                    .setRequired(true)
-                    .setMinLength(15)
-                    .setMaxLength(25);
-                modal.addComponents(new ActionRowBuilder().addComponents(targetInput));
-                return await interaction.showModal(modal);
-            } else if (interaction.customId === 'admin_select_actions') {
-                const selectedValue = interaction.values[0];
-                await interaction.deferReply({ ephemeral: true });
 
-                if (selectedValue === 'manage_prices') {
-                    await interaction.editReply('💡 Untuk mengelola harga paket Robux, Anda dapat menggunakan slash command berikut:\n• `/store prices <packages>`\n*Contoh: `/store prices 100:15000, 500:70000`*');
-                } else if (selectedValue === 'config_welcome') {
-                    await interaction.editReply('👋 Untuk mengatur modul Welcome/Penyambutan member baru, gunakan slash command:\n• `/welcome setup <channel> <role>`\n• `/welcome message <text>`\n• `/welcome enable` atau `/welcome disable`');
-                } else if (selectedValue === 'config_leave') {
-                    await interaction.editReply('🚪 Untuk mengatur modul Goodbye/Perpisahan member keluar, gunakan slash command:\n• `/goodbye setup <channel>`\n• `/goodbye message <text>`\n• `/goodbye enable` atau `/goodbye disable`');
-                } else if (selectedValue === 'view_orders') {
-                    const Order = require('../models/Order');
-                    const ProductOrder = require('../models/ProductOrder');
+            // Ticket Close Confirmation
+            if (customId === 'ticket_close') {
+                const staffRoleId = await settingsService.get('staff_role_id');
+                const adminRoleId = await settingsService.get('admin_role_id');
+                const ownerRoleId = await settingsService.get('owner_role_id');
 
-                    const recentRobux = await Order.find().sort({ createdAt: -1 }).limit(5);
-                    const recentProducts = await ProductOrder.find().sort({ createdAt: -1 }).limit(5);
+                const member = await interaction.guild.members.fetch(interaction.user.id);
+                const isOwner = interaction.guild.ownerId === interaction.user.id;
+                const isAdmin = member.permissions.has('Administrator');
+                const isStaff = member.roles.cache.has(staffRoleId) ||
+                                member.roles.cache.has(adminRoleId) ||
+                                member.roles.cache.has(ownerRoleId) ||
+                                isOwner || isAdmin;
 
-                    let list = '📋 **5 Transaksi Robux Terakhir:**\n';
-                    if (recentRobux.length === 0) {
-                        list += '• Belum ada transaksi Robux.\n';
+                if (!isStaff) {
+                    return interaction.reply({ content: '❌ Hanya staf yang dapat menutup tiket ini.', ephemeral: true });
+                }
+
+                const confirmEmbed = new EmbedBuilder()
+                    .setTitle('⚠️ Konfirmasi Penutupan Ticket')
+                    .setDescription('Apakah Anda yakin ingin menutup Ticket ini?')
+                    .setColor('#ffaa00');
+
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('ticket_close_confirm')
+                        .setLabel('Ya')
+                        .setEmoji('✅')
+                        .setStyle(ButtonStyle.Success),
+                    new ButtonBuilder()
+                        .setCustomId('ticket_close_cancel')
+                        .setLabel('Batal')
+                        .setEmoji('❌')
+                        .setStyle(ButtonStyle.Danger)
+                );
+
+                return await interaction.reply({ embeds: [confirmEmbed], components: [row] });
+            }
+
+            // Ticket Close Cancel
+            if (customId === 'ticket_close_cancel') {
+                const staffRoleId = await settingsService.get('staff_role_id');
+                const adminRoleId = await settingsService.get('admin_role_id');
+                const ownerRoleId = await settingsService.get('owner_role_id');
+
+                const member = await interaction.guild.members.fetch(interaction.user.id);
+                const isOwner = interaction.guild.ownerId === interaction.user.id;
+                const isAdmin = member.permissions.has('Administrator');
+                const isStaff = member.roles.cache.has(staffRoleId) ||
+                                member.roles.cache.has(adminRoleId) ||
+                                member.roles.cache.has(ownerRoleId) ||
+                                isOwner || isAdmin;
+
+                if (!isStaff) {
+                    return interaction.reply({ content: '❌ Hanya staf yang dapat membatalkan penutupan tiket ini.', ephemeral: true });
+                }
+
+                return await interaction.update({ content: '❌ Penutupan tiket dibatalkan.', embeds: [], components: [] });
+            }
+
+            // Ticket Close Confirm Exec
+            if (customId === 'ticket_close_confirm') {
+                const staffRoleId = await settingsService.get('staff_role_id');
+                const adminRoleId = await settingsService.get('admin_role_id');
+                const ownerRoleId = await settingsService.get('owner_role_id');
+
+                const member = await interaction.guild.members.fetch(interaction.user.id);
+                const isOwner = interaction.guild.ownerId === interaction.user.id;
+                const isAdmin = member.permissions.has('Administrator');
+                const isStaff = member.roles.cache.has(staffRoleId) ||
+                                member.roles.cache.has(adminRoleId) ||
+                                member.roles.cache.has(ownerRoleId) ||
+                                isOwner || isAdmin;
+
+                if (!isStaff) {
+                    return interaction.reply({ content: '❌ Hanya staf yang dapat menutup tiket ini.', ephemeral: true });
+                }
+
+                const channelId = interaction.channel.id;
+                if (activeClosures.has(channelId)) {
+                    return interaction.reply({ content: '⚠️ Proses penutupan tiket sedang berjalan.', ephemeral: true });
+                }
+                activeClosures.add(channelId);
+
+                await Ticket.findOneAndUpdate({ ticketId: channelId }, { status: 'closed' }).catch(() => {});
+
+                let secondsLeft = 60;
+                const countdownEmbed = new EmbedBuilder()
+                    .setDescription(`🔒 Ticket akan ditutup otomatis dalam:\n**${secondsLeft} Detik**`)
+                    .setColor('#ff0000');
+
+                await interaction.update({ embeds: [countdownEmbed], components: [] });
+
+                const interval = setInterval(async () => {
+                    secondsLeft -= 10;
+                    if (secondsLeft <= 0) {
+                        clearInterval(interval);
+                        activeClosures.delete(channelId);
+                        
+                        const channel = interaction.guild.channels.cache.get(channelId);
+                        if (channel) {
+                            await channel.delete().catch(() => {});
+                        }
                     } else {
-                        recentRobux.forEach(o => {
-                            list += `• ID: \`${o.orderId}\` | User: <@${o.userId}> | ${o.robuxAmount} R$ | Rp ${o.price.toLocaleString('id-ID')} | Status: \`${o.status}\`\n`;
+                        const updateEmbed = new EmbedBuilder()
+                            .setDescription(`🔒 Ticket akan ditutup otomatis dalam:\n**${secondsLeft} Detik**`)
+                            .setColor('#ff0000');
+                        await interaction.editReply({ embeds: [updateEmbed] }).catch(() => {
+                            clearInterval(interval);
+                            activeClosures.delete(channelId);
                         });
                     }
+                }, 10000);
+                return;
+            }
 
-                    list += '\n📋 **5 Transaksi Produk Terakhir:**\n';
-                    if (recentProducts.length === 0) {
-                        list += '• Belum ada transaksi Produk.\n';
-                    } else {
-                        recentProducts.forEach(o => {
-                            list += `• ID: \`${o.orderId}\` | User: <@${o.userId}> | ${o.productName} | Rp ${o.price.toLocaleString('id-ID')} | Status: \`${o.status}\`\n`;
+            // Update Payout Status Eligibility Check
+            if (customId.startsWith('check_eligibility_')) {
+                await interaction.deferReply({ ephemeral: true });
+                const targetDiscordId = customId.replace('check_eligibility_', '');
+
+                const dbUser = await User.findOne({ discordId: targetDiscordId });
+                if (!dbUser) {
+                    return interaction.editReply('❌ Data user tidak ditemukan di database.');
+                }
+
+                const groupId = await settingsService.get('roblox_group_id', process.env.GROUP_ID);
+                if (groupId && dbUser.robloxId) {
+                    try {
+                        const rank = await noblox.getRankInGroup(parseInt(groupId), dbUser.robloxId).catch(() => 0);
+                        if (rank === 0) {
+                            return interaction.editReply(`⚠️ Akun Roblox **@${dbUser.robloxUsername}** belum bergabung ke grup Roblox kami. Silakan masuk ke grup terlebih dahulu untuk bisa menerima payout!`);
+                        }
+                    } catch (err) {
+                        console.error('Failed to check group rank:', err);
+                    }
+                }
+
+                const joinedAt = dbUser.createdAt || new Date();
+                const diffTime = Math.abs(new Date() - joinedAt);
+                const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+                const roleId = await settingsService.get('eligible_role_id', process.env.ELIGIBLE_ROLE_ID);
+                const member = await interaction.guild.members.fetch(targetDiscordId).catch(() => null);
+
+                if (diffDays >= 14 || dbUser.eligibleForPayout) {
+                    dbUser.eligibleForPayout = true;
+                    await dbUser.save();
+
+                    if (roleId && member) {
+                        try {
+                            if (!member.roles.cache.has(roleId)) {
+                                await member.roles.add(roleId);
+                            }
+                        } catch (err) {
+                            console.error('Failed to add eligible role:', err);
+                        }
+                    }
+
+                    const oldEmbed = interaction.message.embeds[0];
+                    if (oldEmbed) {
+                        const embed = EmbedBuilder.from(oldEmbed);
+                        const fields = oldEmbed.fields.map(f => {
+                            if (f.name.includes('Eligible Date')) {
+                                return { name: '✅ Status Eligibility', value: '🎉 **ELIGIBLE (Sudah +14 Hari)**', inline: true };
+                            }
+                            return f;
                         });
+                        embed.setFields(fields);
+                        embed.setColor('#00ff00');
+
+                        const row = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(`check_eligibility_${targetDiscordId}`)
+                                .setLabel('✅ Eligible')
+                                .setStyle(ButtonStyle.Success)
+                                .setDisabled(true)
+                        );
+
+                        await interaction.message.edit({ embeds: [embed], components: [row] }).catch(() => {});
                     }
 
-                    await interaction.editReply(list);
+                    return interaction.editReply('🎉 Sukses! Akun telah terverifikasi sebagai **Eligible** dan role telah diberikan.');
+                } else {
+                    return interaction.editReply(`⏳ Akun belum memenuhi syarat durasi server (butuh 14 hari).\n\n• Roblox: **@${dbUser.robloxUsername}**\n• Durasi bergabung: **${diffDays} hari**\n• Sisa waktu: **${14 - diffDays} hari** lagi.`);
                 }
-            } else if (interaction.customId === 'store_order_select') {
-                const selectedValue = interaction.values[0];
-                
-                const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
-                const modal = new ModalBuilder()
-                    .setCustomId('store_order_modal')
-                    .setTitle('Order Robux');
-                    
-                const robuxInput = new TextInputBuilder()
-                    .setCustomId('robux_amount')
-                    .setLabel('Jumlah Robux')
-                    .setStyle(TextInputStyle.Short)
-                    .setRequired(true);
-                    
-                if (selectedValue !== 'manual') {
-                    robuxInput.setValue(selectedValue);
-                }
-                                    const usernameInput = new TextInputBuilder()
-                        .setCustomId('roblox_username')
-                        .setLabel('Username Roblox')
-                        .setPlaceholder('Pastikan benar! Kesalahan username bukan tanggung jawab admin.')
-                        .setStyle(TextInputStyle.Short)
-                        .setRequired(true);
-                        
-                    modal.addComponents(new ActionRowBuilder().addComponents(robuxInput), new ActionRowBuilder().addComponents(usernameInput));
-                    return interaction.showModal(modal);
-                } else if (interaction.customId === 'product_buy_select') {
-                    const selectedProductName = interaction.values[0];
-                    const Product = require('../models/Product');
-                    const product = await Product.findOne({ name: selectedProductName });
-                    
-                    if (!product || !product.active) {
-                        return interaction.reply({ content: 'Produk tidak ditemukan atau sudah tidak aktif.', ephemeral: true });
-                    }
-                    
-                    if (product.stock <= 0) {
-                        return interaction.reply({ content: 'Maaf, stok produk ini sedang kosong.', ephemeral: true });
-                    }
+            }
 
-                    const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
-                    const modal = new ModalBuilder()
-                        .setCustomId(`product_buy_modal:${selectedProductName}`)
-                        .setTitle(`Beli Produk`);
+            // Tutorial V2L
+            if (customId === 'tutorial_v2l') {
+                return interaction.reply({
+                    content: `# 🔐・Aktifkan Verifikasi 2 Langkah (V2L)\n\n> **V2L wajib diaktifkan untuk membantu menaikkan limit penerima Robux.** 📈\n\n## 📖 Cara Mengaktifkan\n\n① **Buka Menu**\nTekan ikon ☰ **(garis tiga)** di pojok kiri atas Roblox.\n② **Masuk ke Pengaturan**\nScroll ke bawah, lalu pilih **⚙️ Settings.**\n③ **Pilih Informasi Akun**\nMasuk ke menu **Account Info.**\n④ **Buka Keamanan**\nTekan **Account Info** di bagian atas, lalu ubah ke menu **Security.**\n⑤ **Aktifkan V2L**\nScroll ke bagian **Verifikasi 2 Langkah**, lalu pilih salah satu metode berikut:\n\n### 📧 Verifikasi Email (Disarankan)\n- Pilih **Email (Secure)**.\n- Masukkan kode verifikasi yang dikirim ke email akunmu.\n- Selesai ✅\n\n### 📱 Aplikasi Authenticator (Paling Aman)\n- Pilih **Authenticator App (Very Secure)**.\n- Scan QR Code menggunakan:\n> • Google Authenticator  \n> • Microsoft Authenticator  \n> • Authy\n- Masukkan kode 6 digit yang muncul.\n- Selesai ✅\n\n## ⚠️ Perhatian\n- Pastikan email akun sudah **Verified**.\n- Jangan pernah membagikan kode verifikasi maupun Recovery Code kepada siapa pun.\n- Setelah V2L aktif, beri tahu admin agar pesanan bisa segera diproses.\n\n🎥 **Video Tutorial:** https://youtu.be/R9yrdvo6Zs8?si=KuY7I_L0ZrZN5LlD`,
+                    ephemeral: true
+                });
+            }
 
-                    const quantityInput = new TextInputBuilder()
-                        .setCustomId('product_quantity')
-                        .setLabel('Jumlah Pembelian')
-                        .setStyle(TextInputStyle.Short)
-                        .setValue('1')
-                        .setRequired(true);
-                        
-                    const infoInput = new TextInputBuilder()
-                        .setCustomId('product_info')
-                        .setLabel('Catatan / Username / Detail Info')
-                        .setStyle(TextInputStyle.Paragraph)
-                        .setPlaceholder('Masukkan detail pesanan atau catatan tambahan jika ada...')
-                        .setRequired(false);
+            // Tutorial Cek Limit
+            if (customId === 'tutorial_cek_limit') {
+                return interaction.reply({
+                    content: `# 📊・Cara Cek Riwayat Penerimaan Robux\n\n> Digunakan untuk mengecek apakah akunmu **masih bisa menerima Robux** atau **sudah mencapai batas transfer bulanan**.\n\n## 📖 Cara Mengecek\n\n**1.** Buka Roblox, lalu tekan **☰** (garis tiga) di pojok kiri atas.\n\n**2.** Scroll ke bawah, lalu pilih **⚙️ Settings**.\n\n**3.** Masuk ke menu **Account Info**.\n\n**4.** Tekan **Account Info** di bagian atas, lalu pilih **Robux**.\n\n**5.** Pastikan **Transfer Limits** menunjukkan:\n> 📅 Daily Limit : **5.000 Robux**  \n> 📅 Monthly Limit : **10.000 Robux**\n\n**6.** Tekan **Transaction History**.\n\n**7.** Lihat bagian **Robux Transfers Received**.\n\n### ✅ Jika angkanya masih di bawah **10.000 Robux**\n> Akun **masih bisa menerima Robux**.\n\n### ❌ Jika total sudah **10.000 Robux atau lebih**\n> Akun **sudah mencapai batas transfer bulanan** dan **belum bisa menerima Robux lagi** sampai limit di-reset oleh Roblox.\n\n## ⚠️ Penting\n- Limit **10.000 Robux/bulan** berlaku untuk akun yang sudah mengaktifkan **Verifikasi 2 Langkah (2SV)**.\n- Sebelum memesan, pastikan limit akunmu masih tersedia agar proses transaksi tidak gagal.`,
+                    ephemeral: true
+                });
+            }
 
-                    modal.addComponents(
-                        new ActionRowBuilder().addComponents(quantityInput),
-                        new ActionRowBuilder().addComponents(infoInput)
-                    );
-                    
-                    return interaction.showModal(modal);
-                }
-            } else if (interaction.isModalSubmit()) {
-            if (interaction.customId.startsWith('product_buy_modal:')) {
-                const selectedProductName = interaction.customId.split(':')[1];
-                const quantityStr = interaction.fields.getTextInputValue('product_quantity');
-                const infoStr = interaction.fields.getTextInputValue('product_info') || '-';
-                const quantity = parseInt(quantityStr);
+            // Order Confirmation (Confirm & Cancel)
+            if (customId.startsWith('cancel_order_')) {
+                const sessionId = customId.replace('cancel_order_', '');
+                orderSessions.delete(sessionId);
+                return interaction.reply({
+                    content: '❌ Sesi dibatalkan. Data tidak disimpan. Silakan tekan tombol Order di channel kembali jika ingin mengulang.',
+                    ephemeral: true
+                });
+            }
 
-                if (isNaN(quantity) || quantity <= 0) {
-                    return interaction.reply({ content: 'Jumlah pembelian harus berupa angka yang valid dan lebih dari 0.', ephemeral: true });
-                }
+            if (customId.startsWith('confirm_order_')) {
+                const sessionId = customId.replace('confirm_order_', '');
+                const session = orderSessions.get(sessionId);
 
-                const Product = require('../models/Product');
-                const product = await Product.findOne({ name: selectedProductName });
-
-                if (!product || !product.active) {
-                    return interaction.reply({ content: 'Produk tidak ditemukan atau sudah tidak aktif.', ephemeral: true });
-                }
-                
-                if (product.stock < quantity) {
-                    return interaction.reply({ content: `Maaf, stok tidak cukup. Sisa stok saat ini: ${product.stock}`, ephemeral: true });
+                if (!session) {
+                    return interaction.reply({
+                        content: '❌ Sesi konfirmasi telah kedaluwarsa atau tidak valid. Silakan order ulang.',
+                        ephemeral: true
+                    });
                 }
 
                 await interaction.deferReply({ ephemeral: true });
-                
-                // Reduce stock
-                product.stock -= quantity;
-                const totalPrice = product.price * quantity;
-                await product.save();
 
-                const { updateProductEmbed } = require('../services/productService');
-                await updateProductEmbed(interaction.client, interaction.guild.id);
+                try {
+                    // Sequential Order ID
+                    const totalOrders = await Order.countDocuments();
+                    const orderId = `LB-${String(totalOrders + 1).padStart(6, '0')}`;
 
-                const ticketId = `prod-${interaction.user.id.slice(-4)}-${Date.now().toString().slice(-4)}`;
+                    // Determine Category
+                    const categoryKey = session.type === 'gig' ? 'gig_category_id' : (session.type === 'visend' ? 'visend_category_id' : 'vilog_category_id');
+                    let categoryId = await settingsService.get(categoryKey);
+                    if (!categoryId) {
+                        categoryId = await settingsService.get('global_ticket_category_id');
+                    }
+                    const categoryChannel = categoryId ? await interaction.guild.channels.fetch(categoryId).catch(() => null) : null;
 
-                const channel = await interaction.guild.channels.create({
-                    name: `order-${interaction.user.username}`,
-                    type: 0,
-                    permissionOverwrites: [
+                    // Permissions
+                    const staffRoleId = await settingsService.get('staff_role_id');
+                    const adminRoleId = await settingsService.get('admin_role_id');
+                    const ownerRoleId = await settingsService.get('owner_role_id');
+
+                    const permissions = [
                         { id: interaction.guild.id, deny: ['ViewChannel'] },
                         { id: interaction.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] },
-                        { id: interaction.client.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory', 'ManageChannels'] },
-                        { id: '1505190278003298324', allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }, // Owner
-                        { id: '1517049069166526546', allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }  // Admin
-                    ],
-                });
+                        { id: client.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory', 'ManageChannels'] }
+                    ];
 
-                const Ticket = require('../models/Ticket');
-                await Ticket.create({
-                    ticketId: channel.id,
-                    ownerId: interaction.user.id,
-                    category: 'product'
-                });
-                
-                const ProductOrder = require('../models/ProductOrder');
-                await ProductOrder.create({
-                    orderId: ticketId,
-                    userId: interaction.user.id,
-                    productName: `${product.name} (x${quantity})`,
-                    price: totalPrice,
-                    channelId: channel.id,
-                    status: 'pending'
-                });
+                    if (staffRoleId) permissions.push({ id: staffRoleId, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] });
+                    if (adminRoleId && adminRoleId !== staffRoleId) permissions.push({ id: adminRoleId, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] });
+                    if (ownerRoleId && ownerRoleId !== staffRoleId && ownerRoleId !== adminRoleId) permissions.push({ id: ownerRoleId, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] });
 
-                // Auto notes logic
-                const nameLower = product.name.toLowerCase();
-                let productNotes = 'Akan diproses secepatnya.';
-                
-                if (nameLower.includes('bot')) {
-                    productNotes = 'Estimasi pengerjaan paling lama 3 - 7 hari.';
-                } else if (nameLower.includes('decoration') || nameLower.includes('deco')) {
-                    productNotes = 'Proses via login, paling lama bisa beberapa jam.';
-                } else if (nameLower.includes('akun') || nameLower.includes('nitro')) {
-                    productNotes = 'Proses tergantung antrian yang ada.';
-                }
-
-                const paymentInfo = `\n\n**🏦 Informasi Pembayaran:**\n• **Seabank** -> 901269725883 [Guntur]\n• **Dana** -> 082110831473 [Guntur]\n• **Gopay** -> 081519308407 [Kai]\n• **Shopepay** -> 0881080702615 [WinterStoree]\n\n_Silakan lakukan transfer sesuai dengan nominal harga pesanan Anda. Setelah itu, **kirimkan bukti pembayaran Anda di channel ini** dan jangan lupa tag Admin (<@&1517049069166526546>) atau Owner (<@&1505190278003298324>) agar pesanan segera diproses!_`;
-
-                const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-                const embed = new EmbedBuilder()
-                    .setTitle('🛒 Pesanan Produk WinterBot')
-                    .setDescription(`Halo ${interaction.user}, terima kasih banyak telah mempercayai layanan kami! ✨\nPesananmu sudah kami terima dan stok telah berhasil di-booking. Staf kami akan segera meninjau pesanan ini.\n\n**📦 Detail Pesanan:**\n• **Produk:** ${product.name} (x${quantity})\n• **Harga Satuan:** Rp ${product.price.toLocaleString('id-ID')}\n• **Total Harga:** Rp ${totalPrice.toLocaleString('id-ID')}\n• **Catatan:** ${infoStr}\n• **Status:** 🟡 Pending\n\n**📌 Notes Penting:** \n📝 *${productNotes}*${paymentInfo}`)
-                    .setColor('#0099ff');
+                    const isGIG = session.type === 'gig';
+                    const isVisend = session.type === 'visend';
                     
-                const row = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId('staff_delivered_product').setLabel('Mark Delivered').setStyle(ButtonStyle.Success),
-                    new ButtonBuilder().setCustomId('staff_cancel_product').setLabel('Cancel Order').setStyle(ButtonStyle.Secondary),
-                    new ButtonBuilder().setCustomId('ticket_close').setLabel('Close Ticket').setStyle(ButtonStyle.Danger)
-                );
-                
-                await channel.send({ content: `${interaction.user} | <@&1505190278003298324> <@&1517049069166526546>`, embeds: [embed], components: [row] });
-                
-                await interaction.editReply(`✅ Tiket pesanan berhasil dibuat! Silakan lanjutkan ke tiket: ${channel}`);
-            } else if (interaction.customId.startsWith('admin_layout_modal:')) {
-                const style = interaction.customId.split(':')[1];
-                const targetGuildId = interaction.fields.getTextInputValue('target_guild_id');
-                
-                await interaction.deferReply({ ephemeral: true });
-                
-                try {
-                    const targetGuild = await interaction.client.guilds.fetch(targetGuildId).catch(() => null);
-                    if (!targetGuild) {
-                        return interaction.editReply('❌ **Gagal:** Server target tidak ditemukan atau bot tidak memiliki akses ke server tersebut.');
-                    }
+                    const productName = isGIG ? 'Gift In Game' : (isVisend ? 'Robux Via Send' : 'Robux Via Login');
+                    const amountDisplay = isGIG ? session.amount : session.amount;
 
-                    const layoutManager = require('../services/layoutManager');
-                    const { EmbedBuilder } = require('discord.js');
-                    
-                    const embed = new EmbedBuilder()
-                        .setTitle('Server Layout Update')
-                        .setDescription(`Applying the **${style.toUpperCase()}** layout style to **${targetGuild.name}**...\n\n*Please wait, this will take some time due to Discord rate limits (approx 1.5s per channel).*`)
-                        .setColor('#5865F2');
-
-                    await interaction.editReply({ embeds: [embed] });
-
-                    let lastUpdate = Date.now();
-                    const progressCallback = async (updated, total) => {
-                        const now = Date.now();
-                        if (now - lastUpdate > 5000) {
-                            lastUpdate = now;
-                            embed.setDescription(`Applying the **${style.toUpperCase()}** layout style to **${targetGuild.name}**...\n\nProgress: **${updated}** channels updated.`);
-                            await interaction.editReply({ embeds: [embed] }).catch(() => {});
-                        }
-                    };
-
-                    const result = await layoutManager.applyLayout(targetGuild, style, progressCallback);
-
-                    const finalEmbed = new EmbedBuilder()
-                        .setTitle('Server Layout Update Complete')
-                        .setDescription(`Successfully applied the **${style.toUpperCase()}** layout style to **${targetGuild.name}**.`)
-                        .addFields(
-                            { name: 'Updated Channels', value: `${result.updated}`, inline: true },
-                            { name: 'Errors', value: `${result.errors}`, inline: true }
-                        )
-                        .setColor('#57F287');
-
-                    await interaction.editReply({ embeds: [finalEmbed] });
-                } catch (error) {
-                    await interaction.followUp({ content: `An error occurred: ${error.message}`, ephemeral: true });
-                }
-            } else if (interaction.customId === 'admin_wipe_modal') {
-                await interaction.deferReply({ ephemeral: true });
-                const targetGuildId = interaction.fields.getTextInputValue('target_guild_id');
-                const confirmText = interaction.fields.getTextInputValue('confirm_wipe');
-                
-                if (confirmText !== 'WIPE') {
-                    return interaction.editReply('❌ **Konfirmasi Gagal:** Anda harus mengetik kata `WIPE` secara tepat untuk mengonfirmasi penghapusan.');
-                }
-                
-                const { wipeGuild } = require('../services/cloneService');
-                const { updateAdminPanel } = require('../services/adminService');
-                try {
-                    await interaction.editReply('⏳ Sedang menghapus seluruh isi server target (roles, channels, and categories)...');
-                    const result = await wipeGuild(interaction.client, targetGuildId);
-                    await updateAdminPanel(interaction.client);
-                    await interaction.editReply(`✅ **Server Berhasil Dibersihkan!**\n\n• Server Target: **${result.targetGuildName}**\n• Roles Deleted: **${result.rolesDeletedCount}**\n• Seluruh kategori dan channel berhasil dihapus.`);
-                } catch (error) {
-                    console.error('[Wipe Modal Error]', error);
-                    await interaction.editReply(`❌ **Pembersihan Gagal:** ${error.message}`);
-                }
-            } else if (interaction.customId.startsWith('admin_autogen_modal:')) {
-                await interaction.deferReply({ ephemeral: true });
-                const templateType = interaction.customId.split(':')[1];
-                const targetGuildId = interaction.fields.getTextInputValue('target_guild_id');
-                const { generateTemplate } = require('../services/cloneService');
-                const { updateAdminPanel } = require('../services/adminService');
-
-                try {
-                    await interaction.editReply(`⏳ Sedang menggenerasi template **${templateType}** pada server target...`);
-                    const result = await generateTemplate(interaction.client, targetGuildId, templateType);
-
-                    await updateAdminPanel(interaction.client);
-                    await interaction.editReply(`✅ **Generasi Server Berhasil!**\n\n• Server Target: **${result.targetGuildName}**\n• Template: **${templateType}**\n• Roles Created: **${result.rolesCreated}**\n• Categories Created: **${result.categoriesCreated}**\n• Channels Created: **${result.channelsCreated}**\n\n*Pusat Kontrol (Administration) juga telah ditambahkan ke server target.*`);
-                } catch (error) {
-                    console.error('[AutoGen Modal Error]', error);
-                    await interaction.editReply(`❌ **Generasi Gagal:** ${error.message}`);
-                }
-            } else if (interaction.customId === 'admin_clone_modal') {
-                await interaction.deferReply({ ephemeral: true });
-                const targetGuildId = interaction.fields.getTextInputValue('target_guild_id');
-                const { cloneGuild } = require('../services/cloneService');
-                const { updateAdminPanel } = require('../services/adminService');
-
-                try {
-                    await interaction.editReply('⏳ Sedang memproses kloning server (Copying roles, channels, and configs)...');
-                    const result = await cloneGuild(interaction.client, interaction.guild, targetGuildId);
-                    
-                    // Update admin panel stats
-                    await updateAdminPanel(interaction.client);
-
-                    await interaction.editReply(`✅ **Sinkronisasi / Kloning Server Berhasil!**\n\n• Server Target: **${result.targetGuildName}**\n• Roles Created: **${result.rolesCreatedCount}**\n• Categories Created: **${result.categoriesCreatedCount}**\n• Channels Created: **${result.channelsCreatedCount}**\n• Konfigurasi database & panel otomatis dideploy!`);
-                } catch (error) {
-                    console.error('[Clone Modal Error]', error);
-                    await interaction.editReply(`❌ **Sinkronisasi Gagal:** ${error.message}`);
-                }
-            } else if (interaction.customId === 'verify_modal') {
-                await interaction.deferReply({ ephemeral: true });
-
-                const robloxUsername = interaction.fields.getTextInputValue('roblox_username');
-                const discordId = interaction.user.id;
-
-                try {
-                    const { verifyRobloxUsername } = require('../services/robloxService');
-                    const noblox = require('noblox.js');
-                    const User = require('../models/User');
-
-                    const verification = await verifyRobloxUsername(robloxUsername);
-                    if (!verification.success) {
-                        return interaction.editReply('❌ Username Roblox tidak ditemukan.');
-                    }
-
-                    // Cek apakah user ada di Community Roblox
-                    const groupId = parseInt(process.env.GROUP_ID);
-                    if (!groupId) {
-                        return interaction.editReply('❌ Sistem belum dikonfigurasi sepenuhnya (GROUP_ID belum diset). Harap hubungi Admin.');
-                    }
-
-                    const rankInGroup = await noblox.getRankInGroup(groupId, verification.id).catch(() => 0);
-                    if (rankInGroup === 0) {
-                        return interaction.editReply(`❌ Akun **${verification.username}** belum bergabung ke Community Roblox kami.\nSilakan join community terlebih dahulu, lalu coba lagi.`);
-                    }
-
-                    // Check server join duration
-                    const member = interaction.member;
-                    const joinedAt = member.joinedAt;
-                    const diffTime = Math.abs(new Date() - joinedAt);
-                    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-                    
-                    const isEligible = diffDays >= 14;
-
-                    // Update or Create user in MongoDB
-                    await User.findOneAndUpdate(
-                        { discordId },
-                        {
-                            discordId,
-                            robloxId: verification.id,
-                            robloxUsername: verification.username,
-                            verified: true,
-                            eligibleForPayout: isEligible
-                        },
-                        { upsert: true, new: true }
-                    );
-
-                    let replyMessage = `✅ Roblox account berhasil diverifikasi sebagai **${verification.username}** (ID: ${verification.id})\n\n`;
-                    replyMessage += `📅 Kamu sudah bergabung di server ini selama **${diffDays} hari**.\n`;
-                    
-                    if (isEligible) {
-                        replyMessage += `🎉 **Selamat!** Kamu sudah memenuhi syarat durasi bergabung (14 hari) untuk menerima Robux Payout.`;
-                        
-                        const roleId = process.env.ELIGIBLE_ROLE_ID;
-                        if (roleId) {
-                            try {
-                                await member.roles.add(roleId);
-                            } catch (err) {
-                                console.error('Failed to add role:', err);
-                            }
-                        }
-                    } else {
-                        replyMessage += `⏳ Kamu masih belum memenuhi syarat durasi server (butuh 14 hari). Sisa waktu: **${14 - diffDays} hari** lagi.`;
-                    }
-
-                    // --- COMMUNITY MONITOR LOG ---
-                    try {
-                        const payoutChannelId = process.env.PAYOUT_LOG_CHANNEL_ID || '1518214414254211202';
-                        const payoutChannel = await interaction.client.channels.fetch(payoutChannelId).catch(() => null);
-                        
-                        if (payoutChannel) {
-                            const { EmbedBuilder } = require('discord.js');
-                            const playerInfo = await noblox.getPlayerInfo(verification.id).catch(() => null);
-                            
-                            if (playerInfo) {
-                                const accCreatedDate = new Date(playerInfo.joinDate);
-                                const accAgeDays = playerInfo.age || 0;
-                                const accAgeYears = Math.floor(accAgeDays / 365);
-                                const accAgeMonths = Math.floor((accAgeDays % 365) / 30);
-                                const accAgeRemainingDays = (accAgeDays % 365) % 30;
-                                const accAgeString = `${accAgeDays} days • ${accAgeYears > 0 ? accAgeYears + ' yr ' : ''}${accAgeMonths} mo ${accAgeRemainingDays} d`;
-                                
-                                const eligibleDate = new Date();
-                                eligibleDate.setDate(eligibleDate.getDate() + 14);
-                                
-                                const monitorEmbed = new EmbedBuilder()
-                                    .setTitle('Community Monitor • WinterStore')
-                                    .setDescription(`${playerInfo.displayName} ( @${playerInfo.username} )\n✅ Member Joined the Community`)
-                                    .setThumbnail(`https://www.roblox.com/headshot-thumbnail/image?userId=${verification.id}&width=420&height=420&format=png`)
-                                    .addFields(
-                                        { name: '🆔 Username', value: `@${playerInfo.username}`, inline: true },
-                                        { name: '👤 User ID', value: `${verification.id}`, inline: true },
-                                        { name: '🏷️ Display Name', value: `${playerInfo.displayName}`, inline: true },
-                                        { name: '👥 Followers', value: `${playerInfo.followerCount || 0}`, inline: true },
-                                        { name: '➡️ Following', value: `${playerInfo.followingCount || 0}`, inline: true },
-                                        { name: '🤝 Connections', value: `${playerInfo.friendCount || 0}`, inline: true },
-                                        { name: '📅 Account Created', value: `<t:${Math.floor(accCreatedDate.getTime() / 1000)}:f>`, inline: true },
-                                        { name: '⏳ Account Age', value: accAgeString, inline: true },
-                                        { name: '🔞 Age Group', value: 'Unknown', inline: true },
-                                        { name: '🛡️ Account Status', value: playerInfo.isBanned ? '❌ Banned' : '✅ Active', inline: true },
-                                        { name: '📥 Join Community Date', value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: true },
-                                        { name: '✅ Eligible Date (+14 Days)', value: `<t:${Math.floor(eligibleDate.getTime() / 1000)}:f>`, inline: true }
-                                    )
-                                    .setFooter({ text: 'WinterStore • Join Event • Multi-Source Verified', iconURL: interaction.guild.iconURL() })
-                                    .setColor('#2b2d31');
-                                    
-                                const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-                                const row = new ActionRowBuilder().addComponents(
-                                    new ButtonBuilder()
-                                        .setCustomId(`check_eligibility_${interaction.user.id}`)
-                                        .setLabel('🔄 Update Status Payout')
-                                        .setStyle(ButtonStyle.Primary)
-                                );
-                                await payoutChannel.send({ content: `<@${interaction.user.id}> telah bergabung dan diverifikasi!`, embeds: [monitorEmbed], components: [row] });
-                            }
-                        }
-                    } catch (logErr) {
-                        console.error('Failed to send community monitor log:', logErr);
-                    }
-                    // -----------------------------
-
-                    await interaction.editReply(replyMessage);
-                } catch (error) {
-                    console.error('Verify error:', error);
-                    await interaction.editReply('❌ Terjadi kesalahan saat memverifikasi akun Anda.');
-                }
-            } else if (interaction.customId === 'store_order_modal') {
-                try {
-                    const amountStr = interaction.fields.getTextInputValue('robux_amount');
-                    const username = interaction.fields.getTextInputValue('roblox_username');
-                    const amount = parseInt(amountStr);
-                    
-                    if (isNaN(amount) || amount <= 0) {
-                        return interaction.reply({ content: 'Jumlah Robux harus berupa angka valid.', ephemeral: true });
-                    }
-                    
-                    await interaction.deferReply({ ephemeral: true });
-                    
-                    const StoreConfig = require('../models/StoreConfig');
-                    const config = await StoreConfig.findOne({ guildId: interaction.guild.id });
-                    
-                    let price = 0;
-                    let priceStr = 'Dihitung Admin';
-                    if (config && config.packages) {
-                        const pkg = config.packages.find(p => p.amount === amount);
-                        if (pkg) {
-                            price = pkg.price;
-                            priceStr = `Rp ${price.toLocaleString('id-ID')}`;
-                        }
-                    }
-                    
-                    const ticketId = `order-${interaction.user.id.slice(-4)}-${Date.now().toString().slice(-4)}`;
-                    
+                    // Create Ticket Channel
+                    const channelPrefix = isGIG ? 'gig' : (isVisend ? 'visend' : 'vilog');
+                    const channelName = `${channelPrefix}-${amountDisplay}r-${interaction.user.username}`;
                     const channel = await interaction.guild.channels.create({
-                        name: `order-${interaction.user.username}`,
-                        type: 0,
-                        permissionOverwrites: [
-                            { id: interaction.guild.id, deny: ['ViewChannel'] },
-                            { id: interaction.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] },
-                            { id: interaction.client.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory', 'ManageChannels'] },
-                            { id: '1505190278003298324', allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }, // Owner
-                            { id: '1517049069166526546', allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] }  // Admin
-                        ],
+                        name: channelName,
+                        type: 0, // GuildText
+                        parent: categoryChannel ? categoryChannel.id : null,
+                        permissionOverwrites: permissions
                     });
-                    
-                    const Order = require('../models/Order');
+
+                    // Create DB Records
                     await Order.create({
-                        orderId: ticketId,
+                        orderId,
                         userId: interaction.user.id,
-                        robloxUsername: username,
+                        productName,
+                        price: session.price,
+                        subtotal: session.price,
+                        rounding: 0,
+                        status: 'pending',
                         channelId: channel.id,
-                        robuxAmount: amount,
-                        price: price,
-                        status: 'pending'
+                        details: isGIG ? {
+                            gameLink: session.gameLink,
+                            gamepassName: session.gamepassName,
+                            amount: session.amount,
+                            price: session.price,
+                            rate: session.rate
+                        } : {
+                            username: session.robloxUsername,
+                            password: session.robloxPassword,
+                            amount: session.amount,
+                            price: session.price,
+                            package: session.isCustom ? 'Custom' : undefined
+                        }
                     });
-                    
-                    const Ticket = require('../models/Ticket');
+
                     await Ticket.create({
                         ticketId: channel.id,
                         ownerId: interaction.user.id,
-                        category: 'order'
+                        productName,
+                        orderId,
+                        status: 'open'
                     });
-                    
-                    const paymentInfo = `\n\n**🏦 Informasi Pembayaran:**\n• **Seabank** -> 901269725883 [Guntur]\n• **Dana** -> 082110831473 [Guntur]\n• **Gopay** -> 081519308407 [Kai]\n• **Shopepay** -> 0881080702615 [WinterStoree]\n\n_Silakan lakukan transfer sesuai dengan nominal harga pesanan Anda. Setelah itu, **kirimkan bukti pembayaran Anda di channel <#1517638154889199656>** dan jangan lupa tag Admin (<@&1517049069166526546>) atau Owner (<@&1505190278003298324>) agar pesanan segera diproses!_`;
 
-                    const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-                    const embed = new EmbedBuilder()
-                        .setTitle('🛒 Pesanan Robux')
-                        .setDescription(`Halo ${interaction.user}, staf kami akan segera memproses pesanan Anda.\n\n**Detail Pesanan:**\n• Username Roblox: **${username}**\n• Jumlah: ${amount} R$\n• Harga: ${priceStr}\n• Status: 🟡 Pending\n\n⚠️ **PENTING:** Pastikan username Roblox Anda sudah benar! Kesalahan username bukan tanggung jawab admin!${paymentInfo}`)
-                        .setColor('#ffff00');
-                        
+                    // Update Voice Status
+                    const voiceStatusService = require('../services/voiceStatusService');
+                    voiceStatusService.updateAllVoiceStatuses(interaction.client);
+                    const { AttachmentBuilder } = require('discord.js');
+                    const path = require('path');
+                    const qrPath = path.join(__dirname, '../../Public/QR Payment.jpg');
+                    const qrAttachment = new AttachmentBuilder(qrPath, { name: 'qris.jpg' });
+
+                    let ticketEmbed;
+                    if (isGIG) {
+                        ticketEmbed = new EmbedBuilder()
+                            .setTitle('🛒 Pesanan LyraBlox')
+                            .setDescription(
+                                `Halo <@${interaction.user.id}>,\n\n` +
+                                `Terima kasih telah menggunakan layanan Gift In Game LyraBlox.\n` +
+                                `Pesanan Anda berhasil dibuat.\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+                                `📦 **Detail Pesanan**`
+                            )
+                            .setColor('#f43f5e')
+                            .addFields(
+                                { name: '📦 Produk', value: 'Gift In Game', inline: true },
+                                { name: '🎮 Game / Map', value: `\`${session.gameLink || '-'}\``, inline: true },
+                                { name: '🎁 Gamepass', value: `\`${session.gamepassName || '-'}\``, inline: true },
+                                { name: '💎 Harga Gamepass', value: `\`${session.amount.toLocaleString('id-ID')} Robux\``, inline: true },
+                                { name: '💰 Total Pembayaran', value: `\`Rp ${session.price.toLocaleString('id-ID')}\``, inline: true },
+                                { name: '👤 Username', value: `\`${session.robloxUsername || '-'}\``, inline: true },
+                                { name: '📌 Status', value: '🟡 Pending', inline: true },
+                                { name: '━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
+                                { name: '💳 Pembayaran', value: `Silakan lakukan pembayaran sesuai dengan total yang tertera di atas.\n\n🟦 **GoPay**\n\`081393625527\``, inline: false },
+                                { name: '━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
+                                { 
+                                    name: '📝 Catatan Pembayaran', 
+                                    value: 
+                                        '• Maksimal pembayaran melalui QRIS adalah Rp500.000 untuk setiap transaksi.\n' +
+                                        '• Untuk transaksi di atas Rp500.000, silakan lakukan pembayaran lebih dari satu kali, atau gunakan satu kali pembayaran dengan tambahan biaya QRIS sebesar 0,3%.\n' +
+                                        '• Apabila melakukan transfer ke GoPay menggunakan Bank atau E-Wallet selain GoPay, akan dikenakan biaya tambahan sebesar Rp1.000 sesuai ketentuan penyedia layanan.\n' +
+                                        '• Pastikan nominal pembayaran sesuai dengan total yang tertera pada Ticket.\n' +
+                                        '• Setelah pembayaran selesai, kirim bukti transfer langsung pada Ticket ini.\n' +
+                                        '• Bot akan mendeteksi bukti pembayaran secara otomatis.',
+                                    inline: false 
+                                }
+                            )
+                            .setImage('attachment://qris.jpg')
+                            .setTimestamp();
+                    } else {
+                        ticketEmbed = new EmbedBuilder()
+                            .setTitle('🛒 Pesanan LyraBlox')
+                            .setDescription(
+                                `Halo <@${interaction.user.id}>,\n\n` +
+                                `Terima kasih telah mempercayai pembelian Robux kepada LyraBlox.\n` +
+                                `Pesanan Anda berhasil dibuat.\n` +
+                                `Silakan lakukan pembayaran sesuai instruksi di bawah ini.\n`
+                            )
+                            .addFields(
+                                { name: '📦 Produk', value: productName, inline: true },
+                                { name: '🎁 Paket', value: `\`${session.isCustom ? 'Custom' : session.amount.toLocaleString('id-ID') + ' Robux'}\``, inline: true },
+                                ...(session.isCustom ? [{ name: '💎 Jumlah Robux', value: `\`${session.amount.toLocaleString('id-ID')} Robux\``, inline: true }] : []),
+                                { name: '💰 Total', value: `\`Rp ${session.price.toLocaleString('id-ID')}\``, inline: true },
+                                { name: '👤 Username', value: `\`${session.robloxUsername}\``, inline: true },
+                                ...(isVisend ? [] : [{ name: '🔑 Password', value: `||${session.robloxPassword}||`, inline: true }]),
+                                { name: '📌 Status', value: '🟡 Pending', inline: true },
+                                { name: '━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
+                                { name: '💳 Pembayaran', value: `Silakan lakukan pembayaran sesuai dengan total yang tertera di atas.\n\n🟦 **GoPay**\n\`081393625527\``, inline: false },
+                                { name: '━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
+                                { 
+                                    name: '📝 Catatan Pembayaran', 
+                                    value: 
+                                        '• Maksimal pembayaran melalui QRIS adalah Rp500.000 untuk setiap transaksi.\n' +
+                                        '• Untuk transaksi di atas Rp500.000, silakan lakukan pembayaran lebih dari satu kali, atau gunakan satu kali pembayaran dengan tambahan biaya QRIS sebesar 0,3%.\n' +
+                                        '• Apabila melakukan transfer ke GoPay menggunakan Bank atau E-Wallet selain GoPay, akan dikenakan biaya tambahan sebesar Rp1.000 sesuai ketentuan penyedia layanan.\n' +
+                                        '• Pastikan nominal pembayaran sesuai dengan total yang tertera pada Ticket.\n' +
+                                        '• Setelah pembayaran selesai, kirim bukti transfer langsung pada Ticket ini.\n' +
+                                        '• Bot akan mendeteksi bukti pembayaran secara otomatis.',
+                                    inline: false 
+                                }
+                            )
+                            .setImage('attachment://qris.jpg')
+                            .setColor('#ffaa00')
+                            .setTimestamp();
+                    }
+
                     const row = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId('staff_delivered').setLabel('Mark Delivered').setStyle(ButtonStyle.Success),
-                        new ButtonBuilder().setCustomId('staff_cancel').setLabel('Cancel Order').setStyle(ButtonStyle.Secondary),
+                        new ButtonBuilder().setCustomId(`robux_deliver_${orderId}`).setLabel('Mark Delivered').setStyle(ButtonStyle.Success),
                         new ButtonBuilder().setCustomId('ticket_close').setLabel('Close Ticket').setStyle(ButtonStyle.Danger)
                     );
                     
-                    await channel.send({ content: `${interaction.user} | <@&1505190278003298324> <@&1517049069166526546>`, embeds: [embed], components: [row] });
-                    
-                    // Coba menghapus pesan Select Menu jika ada
-                    try {
-                        if (interaction.message) {
-                            await interaction.message.delete();
+                    if (isVisend) {
+                        row.addComponents(
+                            new ButtonBuilder().setCustomId('tutorial_v2l').setLabel('🔐 Tutorial V2L').setStyle(ButtonStyle.Secondary),
+                            new ButtonBuilder().setCustomId('tutorial_cek_limit').setLabel('📊 Cek Limit Robux').setStyle(ButtonStyle.Secondary)
+                        );
+                    }
+
+                    const staffMention = staffRoleId ? `<@&${staffRoleId}>` : '';
+                    const adminMention = adminRoleId ? `<@&${adminRoleId}>` : '';
+                    await channel.send(`${interaction.user} | ${staffMention} ${adminMention}`);
+                    await channel.send({ 
+                        embeds: [ticketEmbed], 
+                        components: [row],
+                        files: [qrAttachment]
+                    });
+
+                    // Hapus sesi setelah sukses
+                    orderSessions.delete(sessionId);
+
+                    await interaction.editReply(`✅ Pesanan dikonfirmasi! Silakan lanjutkan pembayaran di tiket: ${channel}`);
+                } catch (err) {
+                    logger.error('[InteractionCreate] Error confirming order:', err);
+                    return interaction.editReply('❌ Terjadi kesalahan saat memproses pesanan.');
+                }
+            }
+        }
+        
+        // Helper function for Bulk Order
+        const handleBulkOrder = async (i, session, activeTicket) => {
+            const bulkRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`bulk_append`).setLabel('Tambah ke Tiket Aktif').setStyle(ButtonStyle.Primary)
+            );
+            const bulkEmbed = new EmbedBuilder()
+                .setTitle('⚠️ Tiket Aktif Ditemukan')
+                .setDescription(`Anda masih memiliki tiket yang belum selesai di <#${activeTicket.ticketId}>.\nSilakan tekan tombol di bawah ini untuk menambahkan pesanan baru ke tiket tersebut.`)
+                .setColor('#ffaa00');
+            
+            const bulkReply = await i.editReply({ embeds: [bulkEmbed], components: [bulkRow] });
+            const bulkCollector = bulkReply.createMessageComponentCollector({
+                filter: btn => btn.user.id === i.user.id,
+                time: 60000
+            });
+            bulkCollector.on('collect', async btn => {
+                await btn.deferUpdate();
+                if (btn.customId === 'bulk_append') {
+                    bulkCollector.stop();
+                    const newOrderId = `LB-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+                    await Order.create({
+                        orderId: newOrderId,
+                        userId: btn.user.id,
+                        productName: session.type === 'gig' ? 'Gift In Game' : (session.type === 'visend' ? 'Robux Via Send' : 'Robux Via Login'),
+                        price: session.price,
+                        subtotal: session.price,
+                        rounding: 0,
+                        status: 'pending',
+                        channelId: activeTicket.ticketId,
+                        details: session.type === 'gig' ? {
+                            gameLink: session.gameLink,
+                            gamepassName: session.gamepassName,
+                            amount: session.amount,
+                            price: session.price,
+                            rate: session.rate
+                        } : {
+                            username: session.robloxUsername,
+                            password: session.robloxPassword,
+                            amount: session.amount,
+                            price: session.price,
+                            package: session.isCustom ? 'Custom' : undefined
                         }
-                    } catch (e) {}
+                    });
+
+                    // Update Voice Status
+                    const voiceStatusService = require('../services/voiceStatusService');
+                    voiceStatusService.updateAllVoiceStatuses(interaction.client);
                     
-                    await interaction.editReply(`✅ Pesanan dibuat! Silakan lanjutkan pembayaran di tiket: ${channel}`);
-                    
-                    // 1 Hour Auto-Cancel logic
-                    setTimeout(async () => {
+                    const channel = client.channels.cache.get(activeTicket.ticketId);
+                    if (channel) {
+                        let warningText = '';
                         try {
-                            const checkOrder = await Order.findOne({ orderId: ticketId });
-                            if (checkOrder && checkOrder.status === 'pending') {
-                                checkOrder.status = 'cancelled';
-                                await checkOrder.save();
-
-                                await Ticket.findOneAndUpdate({ ticketId: channel.id }, { status: 'closed' });
-
-                                try {
-                                    const customer = await interaction.client.users.fetch(interaction.user.id);
-                                    if (customer) {
-                                        const dmMessage = `Halo kak ${interaction.user.username} 👋\n\nMohon maaf sebesar-besarnya 🙏 pesanan Robux kakak di **WinterStore** (Order ID: **${checkOrder.orderId}**) terpaksa kami **batalkan otomatis** karena tidak ada respon atau konfirmasi pembayaran yang kami terima selama 1 jam terakhir.\n\nJika kakak masih ingin melakukan pembelian atau sudah melakukan transfer namun lupa mengirimkan bukti, silakan buat tiket pesanan baru ya kak!\n\nTerima kasih,\n❄️ **WinterStore Team**`;
-                                        await customer.send(dmMessage);
+                            const messages = await channel.messages.fetch({ limit: 50 });
+                            const botMsg = messages.find(m => m.author.id === client.user.id && m.embeds.length > 0 && m.components.length > 0);
+                            
+                            if (botMsg) {
+                                const oldEmbed = botMsg.embeds[0];
+                                const usernameField = oldEmbed.fields.find(f => f.name.toLowerCase().includes('username'));
+                                if (usernameField) {
+                                    let oldUsername = usernameField.value.replace(/`/g, '').trim();
+                                    oldUsername = oldUsername.replace(/^text\s*/i, '').trim(); // Remove literal 'text' if Discord injects it
+                                    if (oldUsername.toLowerCase() !== session.robloxUsername.toLowerCase()) {
+                                        warningText = `\n\n⚠️ **PERINGATAN USERNAME BERBEDA:**\n- Username pesanan utama: \`${oldUsername}\`\n- Username pesanan baru: \`${session.robloxUsername}\`\n\nMohon konfirmasi jika pesanan ini memang untuk akun yang berbeda.`;
                                     }
-                                } catch (e) {
-                                    console.error('Failed to DM user on auto-cancel:', e);
                                 }
 
-                                try {
-                                    const msgs = await channel.messages.fetch({ limit: 10 });
-                                    const botMsg = msgs.find(m => m.author.id === interaction.client.user.id && m.embeds.length > 0);
-                                    if (botMsg) {
-                                        const { EmbedBuilder } = require('discord.js');
-                                        const oldEmbed = botMsg.embeds[0];
-                                        const newEmbed = EmbedBuilder.from(oldEmbed)
-                                            .setDescription(oldEmbed.description.replace('🟡 Pending', '🔴 Cancelled (Timeout)'))
-                                            .setColor('#ff0000');
-                                        await botMsg.edit({ embeds: [newEmbed], components: [] }).catch(() => {});
+                                const { EmbedBuilder } = require('discord.js');
+                                const newEmbed = EmbedBuilder.from(oldEmbed);
+                                
+                                // Calculate new total from all pending orders
+                                const pendingOrders = await Order.find({ channelId: activeTicket.ticketId, status: 'pending' });
+                                const newTotal = pendingOrders.reduce((sum, o) => sum + o.price, 0);
+                                const newAmount = pendingOrders.reduce((sum, o) => {
+                                    let amt = 0;
+                                    if (o.details && o.details.amount) amt = parseInt(o.details.amount) || 0;
+                                    return sum + amt;
+                                }, 0);
+                                
+                                if (oldEmbed.fields && oldEmbed.fields.length > 0) {
+                                    const updatedFields = [...oldEmbed.fields];
+                                    
+                                    // Identify where the "Total Pembayaran" field is
+                                    const totalFieldIndex = updatedFields.findIndex(f => f.name.toLowerCase().includes('total'));
+                                    
+                                    // Construct the new order field
+                                    const productName = session.type === 'gig' ? 'Gift In Game' : (session.type === 'visend' ? 'Robux Via Send' : 'Robux Via Login');
+                                    let packageLabel = session.isCustom ? 'Custom' : `${session.amount} Robux`;
+                                    const newOrderField = {
+                                        name: `📦 Tambahan: ${productName}`,
+                                        value: `**Username:** \`${session.robloxUsername}\`\n**Paket:** \`${packageLabel}\`\n**Harga:** \`Rp ${session.price.toLocaleString('id-ID')}\``,
+                                        inline: false
+                                    };
+                                    
+                                    if (totalFieldIndex !== -1) {
+                                        // Update the total field
+                                        updatedFields[totalFieldIndex] = {
+                                            ...updatedFields[totalFieldIndex],
+                                            value: `\`Rp ${newTotal.toLocaleString('id-ID')}\``
+                                        };
+                                        // Insert the new order before the total field
+                                        updatedFields.splice(totalFieldIndex, 0, newOrderField);
+                                    } else {
+                                        updatedFields.push(newOrderField);
                                     }
-                                    await channel.send('⏳ **Sistem Otomatis:** Pesanan dibatalkan karena tidak ada konfirmasi/respons selama 1 jam. Tiket ini akan ditutup dalam 10 detik.');
-                                } catch (e) {}
-
-                                setTimeout(() => {
-                                    channel.delete().catch(() => {});
-                                }, 10000);
+                                    
+                                    newEmbed.setFields(updatedFields);
+                                }
+                                await botMsg.edit({ embeds: [newEmbed] });
                             }
-                        } catch (err) {
-                            console.error('Error in auto-cancel timeout:', err);
+                        } catch (e) {
+                            console.error('[BulkOrder] Error updating original embed', e);
                         }
-                    }, 60 * 60 * 1000); // 1 hour
 
-                    
-                } catch (error) {
-                    console.error('Modal Submit Error:', error);
-                    await interaction.reply({ content: 'Gagal memproses pesanan.', ephemeral: true }).catch(() => {});
+                        const { EmbedBuilder } = require('discord.js');
+                        const gigDetails = session.type === 'gig' ? `**Game / Map:** \`${session.gameLink || '-'}\`\n**Gamepass:** \`${session.gamepassName || '-'}\`\n` : '';
+                        const bulkNotifyEmbed = new EmbedBuilder()
+                            .setTitle('🛒 Pesanan Tambahan Diterima')
+                            .setDescription(
+                                `Halo <@${btn.user.id}>, pesanan baru telah ditambahkan ke tiket ini!\n\n` +
+                                `**Produk:** \`${session.type === 'gig' ? 'Gift In Game' : (session.type === 'visend' ? 'Robux Via Send' : 'Robux Via Login')}\`\n` +
+                                gigDetails +
+                                `**Tambahan Robux:** \`${session.amount.toLocaleString('id-ID')} Robux\`\n` +
+                                `**Tambahan Biaya:** \`Rp ${session.price.toLocaleString('id-ID')}\`\n\n` +
+                                `*(Total tagihan pada pesan utama tiket ini telah diperbarui secara otomatis.)*\n\n` +
+                                `**📝 Catatan Pembayaran:**\n` +
+                                `Jika Anda **sudah** membayar orderan sebelumnya, Anda hanya perlu mentransfer nominal **Tambahan Biaya** di atas.\n\n` +
+                                `Namun, jika Anda **belum** mentransfer orderan sebelumnya, silakan ikuti **Total Pembayaran terbaru** yang ada di informasi pesan utama di atas.` +
+                                warningText
+                            )
+                            .setColor(warningText ? '#ffcc00' : '#00ff00');
+                        await channel.send({ embeds: [bulkNotifyEmbed] });
+                    }
+                    return btn.editReply({ content: `✅ Pesanan berhasil ditambahkan ke <#${activeTicket.ticketId}>. Silakan lanjutkan pembayaran di sana.`, embeds: [], components: [] });
                 }
-            } else if (interaction.customId === 'verify_modal') {
+            });
+        };
+
+        // Handle Modal Submissions
+        if (interaction.isModalSubmit()) {
+            const { customId } = interaction;
+
+            if (customId === 'modal_mm_fee_create' || customId.startsWith('modal_mm_fee_edit_')) {
+                await interaction.deferReply({ ephemeral: true });
+                const configService = require('../services/configService');
+
+                const minAmount = parseInt(interaction.fields.getTextInputValue('minAmount').replace(/\D/g, '')) || 0;
+                const maxAmount = parseInt(interaction.fields.getTextInputValue('maxAmount').replace(/\D/g, '')) || 999999999;
+                const fee = parseInt(interaction.fields.getTextInputValue('feeAmount').replace(/\D/g, '')) || 0;
+                const displayOrder = parseInt(interaction.fields.getTextInputValue('displayOrder').replace(/\D/g, '')) || 0;
+
+                const data = { minAmount, maxAmount, fee, displayOrder, isActive: true };
+
+                try {
+                    if (customId === 'modal_mm_fee_create') {
+                        await configService.createMMFee(data, interaction.user.username, interaction.user.id);
+                        return interaction.editReply('✅ Fee MM baru berhasil ditambahkan.');
+                    } else {
+                        const feeId = customId.replace('modal_mm_fee_edit_', '');
+                        await configService.updateMMFee(feeId, data, interaction.user.username, interaction.user.id);
+                        return interaction.editReply('✅ Fee MM berhasil diupdate.');
+                    }
+                } catch (e) {
+                    return interaction.editReply(`❌ Gagal menyimpan data: ${e.message}`);
+                }
+            }
+
+            if (customId === 'modal_limited_order') {
+                await interaction.deferReply({ ephemeral: true });
+
+                const robloxUsername = interaction.fields.getTextInputValue('limited_username');
+                const item = interaction.fields.getTextInputValue('limited_item_name');
+                const rawPrice = interaction.fields.getTextInputValue('limited_price');
+                const notes = interaction.fields.getTextInputValue('limited_notes');
+
+                const price = parseInt(rawPrice.replace(/\D/g, '')) || 0;
+
+                if (price <= 0) {
+                    return interaction.editReply('❌ Harga tidak valid.');
+                }
+
+                const session = {
+                    type: 'limited',
+                    robloxUsername,
+                    item,
+                    price,
+                    amount: 0,
+                    notes
+                };
+
+                try {
+                    await createTicketFromSession(interaction, session, interaction.client);
+                } catch (error) {
+                    logger.error('[Limited Item Ticket Error]', error);
+                    return interaction.editReply('❌ Terjadi kesalahan saat memproses pesanan.');
+                }
+                return;
+            }
+
+            if (customId.startsWith('modal_mm_order_')) {
+                await interaction.deferReply({ ephemeral: true });
+                const feeId = customId.replace('modal_mm_order_', '');
+                
+                const configService = require('../services/configService');
+                const fees = await configService.getMMFees();
+                const feeData = fees.find(f => f._id.toString() === feeId);
+                
+                if (!feeData) {
+                    return interaction.editReply('❌ Data Fee MM tidak ditemukan. Silakan ulangi proses pemesanan.');
+                }
+
+                const buyer = interaction.fields.getTextInputValue('mm_buyer');
+                const seller = interaction.fields.getTextInputValue('mm_seller');
+                const item = interaction.fields.getTextInputValue('mm_item');
+                let notes = '';
+                try {
+                    notes = interaction.fields.getTextInputValue('mm_notes');
+                } catch (e) {}
+
+                const minStr = `Rp${feeData.minAmount.toLocaleString('id-ID')}`;
+                const maxStr = feeData.maxAmount >= 999999999 ? 'Ke Atas' : `Rp${feeData.maxAmount.toLocaleString('id-ID')}`;
+                const selectedRange = `${minStr} - ${maxStr}`;
+
+                // Create session
+                const session = {
+                    type: 'mm_rekber',
+                    amount: 0, // Not selling robux
+                    price: feeData.fee, // Default to fee (will be updated if buyer inputs actual price later, but for MM, the nominal is arbitrary within the range)
+                    fee: feeData.fee,
+                    selectedRange,
+                    buyer,
+                    seller,
+                    item,
+                    notes,
+                    robloxUsername: buyer // required field by createTicketFromSession
+                };
+
+                const confirmEmbed = new EmbedBuilder()
+                    .setTitle('🔍 Konfirmasi Order MM / Rekber')
+                    .setDescription('Silakan pastikan seluruh informasi transaksi sudah benar sebelum melanjutkan.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n👤 **Informasi Transaksi**')
+                    .addFields(
+                        { name: 'Buyer', value: `\`${buyer}\``, inline: true },
+                        { name: 'Seller', value: `\`${seller}\``, inline: true },
+                        { name: 'Barang / Item', value: `\`${item}\``, inline: false },
+                        { name: 'Catatan', value: `\`${notes || '-'}\``, inline: false },
+                        { name: '━━━━━━━━━━━━━━━━━━━━━━━━━━━━', value: '📦 **Informasi Pembayaran**', inline: false },
+                        { name: 'Rentang Transaksi', value: `\`${selectedRange}\``, inline: true },
+                        { name: 'Fee LyraBlox', value: `\`Rp${feeData.fee.toLocaleString('id-ID')}\``, inline: true }
+                    )
+                    .setFooter({ text: 'Apabila seluruh informasi sudah sesuai, silakan tekan tombol Konfirmasi Pesanan.' })
+                    .setColor('#f59e0b');
+
+                const confirmRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId(`confirm_order`).setLabel('✅ Konfirmasi Pesanan').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId(`cancel_order`).setLabel('✏️ Ubah Data').setStyle(ButtonStyle.Danger)
+                );
+
+                const reply = await interaction.editReply({ embeds: [confirmEmbed], components: [confirmRow] });
+
+                const collector = reply.createMessageComponentCollector({
+                    filter: i => i.user.id === interaction.user.id,
+                    time: 300000 // 5 minutes
+                });
+
+                collector.on('collect', async i => {
+                    await i.deferUpdate();
+                    if (i.customId === 'cancel_order') {
+                        collector.stop('cancelled');
+                        return i.editReply({ content: '❌ Konfirmasi dibatalkan. Silakan ulangi proses pemesanan.', embeds: [], components: [] });
+                    }
+                    if (i.customId === 'confirm_order') {
+                        collector.stop('confirmed');
+                        return await createTicketFromSession(i, session, i.client);
+                    }
+                });
+
+                collector.on('end', (collected, reason) => {
+                    if (reason === 'time') {
+                        interaction.editReply({ content: '⏳ Waktu konfirmasi habis. Silakan ulangi proses.', embeds: [], components: [] }).catch(() => {});
+                    }
+                });
+                return;
+            }
+
+            // ==========================================
+            // COPAY MODAL HANDLERS
+            // ==========================================
+
+            // Modal: copay_username_modal -> start timer immediately
+            if (customId === 'copay_username_modal') {
+                const robloxUsername = interaction.fields.getTextInputValue('roblox_username');
+                const discordId = interaction.user.id;
+
+                // Anti-duplicate
+                const existing = await CopayEligibility.findOne({ discordId });
+                if (existing) {
+                    const unixEligible = Math.floor(existing.eligibleAt.getTime() / 1000);
+                    return interaction.reply({ content: `❌ Timer Eligibility Anda sudah berjalan.\n🎯 Eligible pada: <t:${unixEligible}:F> (<t:${unixEligible}:R>)` });
+                }
+
+                const now = new Date();
+                const eligibleAt = new Date(now.getTime() + (14 * 24 * 60 * 60 * 1000)); // 14 days
+
+                const doc = new CopayEligibility({
+                    discordId,
+                    discordUsername: interaction.user.username,
+                    robloxUsername,
+                    startedAt: now,
+                    eligibleAt
+                });
+                await doc.save();
+
+                const unixStart = Math.floor(now.getTime() / 1000);
+                const unixEligible = Math.floor(eligibleAt.getTime() / 1000);
+
+                const timerEmbed = new EmbedBuilder()
+                    .setTitle('⏳ ROBUX COMMUNITY ELIGIBILITY')
+                    .setDescription(
+                        `👤 **Roblox Username**\n${robloxUsername}\n\n` +
+                        `📅 **Mulai Perhitungan**\n<t:${unixStart}:F> (<t:${unixStart}:R>)\n\n` +
+                        `🎯 **Eligible Pada**\n<t:${unixEligible}:F> (<t:${unixEligible}:R>)\n\n` +
+                        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                        `**Progress**\n` +
+                        `Status: 🟡 Waiting\n` +
+                        `Progress: 0 / 14 Hari`
+                    )
+                    .setColor('#f1c40f')
+                    .setFooter({ text: 'Bot akan memberi tahu Anda secara otomatis ketika telah memenuhi syarat.' });
+
+                // Reply in DM with the timer embed
+                return interaction.reply({ embeds: [timerEmbed] });
+            }
+
+            // Modal: copay_modal_order -> create ticket
+            if (customId.startsWith('copay_modal_order:')) {
+                const packageId = customId.split(':')[1];
+                const robloxUsername = interaction.fields.getTextInputValue('roblox_username');
+
+                const pkg = await RobuxPackage.findById(packageId);
+                if (!pkg) return interaction.reply({ content: 'Paket tidak ditemukan.', ephemeral: true });
+
+                await interaction.deferReply({ ephemeral: true });
+                try {
+                    const session = {
+                        type: 'copay',
+                        amount: pkg.amount,
+                        price: pkg.price,
+                        robloxUsername: robloxUsername
+                    };
+                    await createTicketFromSession(interaction, session, interaction.client);
+                    return;
+                } catch (err) {
+                    return interaction.editReply({ content: '❌ Gagal membuat ticket. Silakan coba lagi nanti.' });
+                }
+            }
+
+            // ==========================================
+
+            // 1. Robux Modal Order Submission (Vilog & Visend)
+            
+            if (customId.startsWith('vouch_modal_')) {
+                const parts = customId.split('_');
+                const rating = parseInt(parts[2]);
+                const orderId = parts.slice(3).join('_');
+                
+                await interaction.deferReply({ ephemeral: true });
+
+                const order = await Order.findOne({ orderId });
+                if (!order || order.status !== 'success' || order.reviewGiven) {
+                    return interaction.editReply('❌ Terjadi kesalahan atau Anda sudah pernah memberikan ulasan untuk pesanan ini.');
+                }
+
+                // Kalkulasi total harga dari seluruh pesanan di ticket yang sama (termasuk bulk orders)
+                const allOrders = await Order.find({ channelId: order.channelId, status: 'success' });
+                const totalPrice = allOrders.length > 0 ? allOrders.reduce((sum, o) => sum + o.price, 0) : order.price;
+
+                let comment = interaction.fields.getTextInputValue('review_comment');
+                if (!comment || comment.trim() === '') comment = 'Tidak memberikan komentar.';
+
+                order.reviewGiven = true;
+                order.rating = rating;
+                order.comment = comment;
+                order.reviewDate = new Date();
+                await order.save();
+
+                let stats = await ReviewStats.findOne({ id: 'global' });
+                if (!stats) {
+                    stats = new ReviewStats();
+                }
+                stats.totalReviews += 1;
+                stats.stars[rating] += 1;
+                
+                // Recalculate average
+                let totalScore = 0;
+                for (let i = 1; i <= 5; i++) {
+                    totalScore += (stats.stars[i] * i);
+                }
+                stats.averageRating = totalScore / stats.totalReviews;
+                
+                await stats.save();
+
+                // Send to Vouch Channel
+                const VOUCH_CHANNEL_ID = '1534629812629409952';
+                const vouchChannel = await interaction.client.channels.fetch(VOUCH_CHANNEL_ID).catch(()=>null);
+                
+                if (vouchChannel) {
+                    const starsStr = '⭐'.repeat(rating);
+                    const embed = new EmbedBuilder()
+                        .setTitle('⭐ LYRABLOX CUSTOMER REVIEW')
+                        .setDescription('━━━━━━━━━━━━━━━━━━━━━━')
+                        .addFields(
+                            { name: '👤 Customer', value: `<@${order.userId}>`, inline: true },
+                            { name: '⭐ Rating', value: starsStr, inline: true },
+                            { name: '📦 Produk', value: order.productName, inline: true },
+                            { name: '💰 Total Pembelian', value: `Rp ${totalPrice.toLocaleString('id-ID')}`, inline: true },
+                            { name: '💬 Ulasan', value: comment, inline: false }
+                        )
+                        .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true, size: 256 }))
+                        .setFooter({ text: 'Terima kasih telah mempercayai LyraBlox ❤️' })
+                        .setTimestamp();
+                    
+                    await vouchChannel.send({ embeds: [embed] }).catch(()=>{});
+                }
+
+                // If sent from ticket, try to disable buttons in the review panel message
+                if (interaction.message && interaction.message.components) {
+                    try {
+                        const newRow = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder().setCustomId('x1').setLabel('Review Dikirim!').setStyle(ButtonStyle.Success).setDisabled(true)
+                        );
+                        await interaction.message.edit({ components: [newRow] });
+                    } catch(e) {}
+                }
+
+                return interaction.editReply('✅ Terima kasih! Review Anda telah berhasil dikirim.');
+            }
+
+            if (customId.startsWith('vilog_modal_order:') || customId.startsWith('visend_modal_order:') || customId === 'visend_modal_custom') {
+                const isVisend = customId.startsWith('visend_modal_order:') || customId === 'visend_modal_custom';
+                const isCustom = customId === 'visend_modal_custom';
+
+                console.log(`[DEBUG] Received modal submit with customId: ${customId}. isVisend: ${isVisend}`);
+
+                try {
+                    await interaction.deferReply({ ephemeral: true });
+                } catch(e) {
+                    console.error('[DEBUG] deferReply failed:', e);
+                }
+
+                try {
+                    let amount, price;
+                    
+                    if (isCustom) {
+                        const amountStr = interaction.fields.getTextInputValue('robux_amount');
+                        if (!/^\d+$/.test(amountStr) || parseInt(amountStr) <= 0) {
+                            return interaction.editReply('❌ Jumlah Robux tidak valid. Harap masukkan angka saja (tanpa titik/koma) dan lebih dari 0.');
+                        }
+                        amount = parseInt(amountStr);
+                        const rawPrice = amount * 150;
+                        price = Math.ceil(rawPrice / 500) * 500;
+                    } else {
+                        const [, amountStr, priceStr] = customId.split(':');
+                        amount = parseInt(amountStr);
+                        price = parseInt(priceStr);
+                    }
+
+                    const robloxUsername = interaction.fields.getTextInputValue('roblox_username');
+                    const robloxPassword = isVisend ? '' : interaction.fields.getTextInputValue('roblox_password');
+
+                    // Validasi Roblox Username
+                    const userInfo = await getRobloxUserInfo(robloxUsername);
+                    if (!userInfo.success) {
+                        return interaction.editReply('❌ Username Roblox tidak ditemukan.\n\nSilakan periksa kembali Username yang Anda masukkan.\nPastikan penulisan Username sudah benar.');
+                    }
+
+                    // Build Session
+                    const session = {
+                        type: isVisend ? 'visend' : 'vilog',
+                        isCustom, amount, price, 
+                        robloxUsername: userInfo.username, 
+                        robloxPassword, 
+                        robloxId: userInfo.id,
+                        displayName: userInfo.displayName,
+                        avatarUrl: userInfo.avatarUrl
+                    };
+
+                    // Order Confirmation Embed
+                    const confirmEmbed = new EmbedBuilder()
+                        .setTitle('🔍 Konfirmasi Akun Roblox')
+                        .setDescription('Silakan pastikan seluruh informasi akun dan pesanan sudah benar sebelum melanjutkan.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n👤 **Informasi Akun**')
+                        .addFields(
+                            { name: 'Username', value: `\`${userInfo.username}\``, inline: true },
+                            { name: 'Display Name', value: `\`${userInfo.displayName}\``, inline: true },
+                            { name: 'User ID', value: `\`${userInfo.id}\``, inline: true },
+                            { name: '━━━━━━━━━━━━━━━━━━━━━━━━━━━━', value: '📦 **Informasi Pesanan**', inline: false },
+                            { name: 'Produk', value: `\`${isVisend ? 'Robux Via Send' : 'Robux Via Login'}\``, inline: true },
+                            { name: 'Paket', value: `\`${isCustom ? 'Custom' : amount + ' Robux'}\``, inline: true },
+                            { name: 'Jumlah Robux', value: `\`${amount}\``, inline: true },
+                            { name: 'Total Pembayaran', value: `\`Rp${price.toLocaleString('id-ID')}\``, inline: true },
+                            { name: '━━━━━━━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false }
+                        )
+                        .setThumbnail(userInfo.avatarUrl || 'https://tr.rbxcdn.com/default-headshot')
+                        .setFooter({ text: 'Apabila seluruh informasi sudah sesuai, silakan tekan tombol Konfirmasi Pesanan.' })
+                        .setColor('#ffaa00');
+
+                    const confirmRow = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId(`confirm_order`).setLabel('✅ Konfirmasi Pesanan').setStyle(ButtonStyle.Success),
+                        new ButtonBuilder().setCustomId(`cancel_order`).setLabel('✏️ Ubah Data').setStyle(ButtonStyle.Danger),
+                        new ButtonBuilder().setLabel('👤 Lihat Profil Roblox').setStyle(ButtonStyle.Link).setURL(`https://www.roblox.com/users/${userInfo.id}/profile`)
+                    );
+
+                    const reply = await interaction.editReply({ embeds: [confirmEmbed], components: [confirmRow] });
+
+                    const collector = reply.createMessageComponentCollector({
+                        filter: i => i.user.id === interaction.user.id,
+                        time: 300000 // 5 minutes
+                    });
+
+                    collector.on('collect', async i => {
+                        await i.deferUpdate();
+                        if (i.customId === 'cancel_order') {
+                            collector.stop('cancelled');
+                            return i.editReply({ content: '❌ Konfirmasi dibatalkan. Silakan ulangi proses pemesanan.', embeds: [], components: [] });
+                        }
+                        
+                        if (i.customId === 'confirm_order') {
+                            collector.stop('confirmed');
+                            const productName = session.type === 'gig' ? 'Gift In Game' : (session.type === 'visend' ? 'Robux Via Send' : 'Robux Via Login');
+                            const activeTicket = await Ticket.findOne({ ownerId: interaction.user.id, productName, status: 'open' });
+                            if (activeTicket) {
+                                let activeChannel = client.channels.cache.get(activeTicket.ticketId);
+                                if (!activeChannel) {
+                                    try {
+                                        activeChannel = await client.channels.fetch(activeTicket.ticketId);
+                                    } catch (err) {
+                                        activeChannel = null;
+                                    }
+                                }
+                                if (activeChannel) {
+                                    await handleBulkOrder(i, session, activeTicket);
+                                } else {
+                                    // Channel was deleted manually, close orphaned ticket and orders
+                                    await Ticket.updateOne({ _id: activeTicket._id }, { status: 'closed' });
+                                    await Order.updateMany({ channelId: activeTicket.ticketId, status: 'pending' }, { status: 'closed' });
+                                    await createTicketFromSession(i, session, client);
+                                }
+                            } else {
+                                await createTicketFromSession(i, session, client);
+                            }
+                        }
+                    });
+
+                    collector.on('end', (collected, reason) => {
+                        if (reason === 'time') {
+                            interaction.editReply({ content: '❌ Waktu konfirmasi habis. Silakan ulangi pemesanan.', embeds: [], components: [] }).catch(() => {});
+                        }
+                    });
+                    return;
+                } catch (err) {
+                    logger.error('[InteractionCreate] Error submitting Robux modal:', err);
+                    return interaction.editReply('❌ Gagal memproses pesanan Anda.');
+                }
+            }
+
+            // 2. Gift In Game (GIG) Modal Order Submission
+            if (customId === 'gig_modal_order') {
+                await interaction.deferReply({ ephemeral: true });
+
+                try {
+                    const gameLink = interaction.fields.getTextInputValue('gig_game_link');
+                    const gamepassName = interaction.fields.getTextInputValue('gig_gamepass_name');
+                    const amountStr = interaction.fields.getTextInputValue('gig_robux_amount');
+                    const robloxUsername = interaction.fields.getTextInputValue('roblox_username');
+
+                    if (!/^\d+$/.test(amountStr) || parseInt(amountStr) <= 0) {
+                        return interaction.editReply('❌ Jumlah Robux tidak valid. Harap masukkan angka saja (tanpa titik/koma) dan lebih dari 0.');
+                    }
+                    const amount = parseInt(amountStr);
+                    const configService = require('../services/configService');
+                    const config = await configService.getGlobalConfig();
+                    const rate = config.gigRate || 90;
+                    
+                    let price = amount * rate;
+                    price = Math.ceil(price / 500) * 500;
+
+                    // Validasi Roblox Username
+                    const userInfo = await getRobloxUserInfo(robloxUsername);
+                    if (!userInfo.success) {
+                        return interaction.editReply('❌ Username Roblox tidak ditemukan.\n\nSilakan periksa kembali Username yang Anda masukkan.\nPastikan penulisan Username sudah benar.');
+                    }
+
+                    // Build Session
+                    const session = {
+                        type: 'gig', amount, price, rate, gameLink, gamepassName,
+                        robloxUsername: userInfo.username, robloxId: userInfo.id, displayName: userInfo.displayName, avatarUrl: userInfo.avatarUrl
+                    };
+
+                    // Order Confirmation Embed for GIG
+                    const confirmEmbed = new EmbedBuilder()
+                        .setTitle('🔍 Konfirmasi Akun Roblox (Gift In Game)')
+                        .setDescription('Silakan pastikan seluruh informasi akun dan pesanan sudah benar sebelum melanjutkan.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n👤 **Informasi Akun**')
+                        .addFields(
+                            { name: 'Username', value: `\`${userInfo.username}\``, inline: true },
+                            { name: 'Display Name', value: `\`${userInfo.displayName}\``, inline: true },
+                            { name: 'User ID', value: `\`${userInfo.id}\``, inline: true },
+                            { name: '━━━━━━━━━━━━━━━━━━━━━━━━━━━━', value: '📦 **Informasi Pesanan**', inline: false },
+                            { name: 'Game / Map', value: `\`${gameLink}\``, inline: true },
+                            { name: 'Gamepass', value: `\`${gamepassName}\``, inline: true },
+                            { name: 'Harga Gamepass', value: `\`${amount} Robux\``, inline: true },
+                            { name: 'Total Pembayaran', value: `\`Rp${price.toLocaleString('id-ID')}\``, inline: true },
+                            { name: '━━━━━━━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false }
+                        )
+                        .setThumbnail(userInfo.avatarUrl || 'https://tr.rbxcdn.com/default-headshot')
+                        .setFooter({ text: 'Apabila seluruh informasi sudah sesuai, silakan tekan tombol Konfirmasi Pesanan.' })
+                        .setColor('#f43f5e');
+
+                    const confirmRow = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId(`confirm_order`).setLabel('✅ Konfirmasi Pesanan').setStyle(ButtonStyle.Success),
+                        new ButtonBuilder().setCustomId(`cancel_order`).setLabel('✏️ Ubah Data').setStyle(ButtonStyle.Danger),
+                        new ButtonBuilder().setLabel('👤 Lihat Profil Roblox').setStyle(ButtonStyle.Link).setURL(`https://www.roblox.com/users/${userInfo.id}/profile`)
+                    );
+
+                    const reply = await interaction.editReply({ embeds: [confirmEmbed], components: [confirmRow] });
+
+                    const collector = reply.createMessageComponentCollector({
+                        filter: i => i.user.id === interaction.user.id,
+                        time: 300000 // 5 minutes
+                    });
+
+                    collector.on('collect', async i => {
+                        await i.deferUpdate();
+                        if (i.customId === 'cancel_order') {
+                            collector.stop('cancelled');
+                            return i.editReply({ content: '❌ Konfirmasi dibatalkan. Silakan ulangi proses pemesanan.', embeds: [], components: [] });
+                        }
+                        
+                        if (i.customId === 'confirm_order') {
+                            collector.stop('confirmed');
+                            const productName = session.type === 'gig' ? 'Gift In Game' : (session.type === 'visend' ? 'Robux Via Send' : 'Robux Via Login');
+                            const activeTicket = await Ticket.findOne({ ownerId: interaction.user.id, productName, status: 'open' });
+                            if (activeTicket) {
+                                let activeChannel = client.channels.cache.get(activeTicket.ticketId);
+                                if (!activeChannel) {
+                                    try {
+                                        activeChannel = await client.channels.fetch(activeTicket.ticketId);
+                                    } catch (err) {
+                                        activeChannel = null;
+                                    }
+                                }
+                                if (activeChannel) {
+                                    await handleBulkOrder(i, session, activeTicket);
+                                } else {
+                                    // Channel was deleted manually, close orphaned ticket and orders
+                                    await Ticket.updateOne({ _id: activeTicket._id }, { status: 'closed' });
+                                    await Order.updateMany({ channelId: activeTicket.ticketId, status: 'pending' }, { status: 'closed' });
+                                    await createTicketFromSession(i, session, client);
+                                }
+                            } else {
+                                await createTicketFromSession(i, session, client);
+                            }
+                        }
+                    });
+
+                    collector.on('end', (collected, reason) => {
+                        if (reason === 'time') {
+                            interaction.editReply({ content: '❌ Waktu konfirmasi habis. Silakan ulangi pemesanan.', embeds: [], components: [] }).catch(() => {});
+                        }
+                    });
+                    return;
+                } catch (err) {
+                    logger.error('[InteractionCreate] Error submitting GIG modal:', err);
+                    return interaction.editReply('❌ Terjadi kesalahan saat memproses pesanan.');
+                }
+            }
+            // Roblox Verification Modal Submit
+            if (customId === 'verify_modal') {
                 await interaction.deferReply({ ephemeral: true });
 
                 const robloxUsername = interaction.fields.getTextInputValue('roblox_username');
                 const discordId = interaction.user.id;
 
                 try {
-                    const { verifyRobloxUsername } = require('../services/robloxService');
-                    const noblox = require('noblox.js');
-                    const User = require('../models/User');
-
                     const verification = await verifyRobloxUsername(robloxUsername);
                     if (!verification.success) {
                         return interaction.editReply('❌ Username Roblox tidak ditemukan.');
                     }
 
-                    // Cek apakah user ada di Community Roblox
-                    const groupId = parseInt(process.env.GROUP_ID);
+                    const groupId = await settingsService.get('roblox_group_id', process.env.GROUP_ID);
                     if (!groupId) {
-                        return interaction.editReply('❌ Sistem belum dikonfigurasi sepenuhnya (GROUP_ID belum diset). Harap hubungi Admin.');
+                        return interaction.editReply('❌ Sistem belum dikonfigurasi sepenuhnya (roblox_group_id belum diset). Harap hubungi Admin.');
                     }
 
-                    const rankInGroup = await noblox.getRankInGroup(groupId, verification.id).catch(() => 0);
+                    const rankInGroup = await noblox.getRankInGroup(parseInt(groupId), verification.id).catch(() => 0);
                     if (rankInGroup === 0) {
-                        return interaction.editReply(`❌ Akun **${verification.username}** belum bergabung ke Community Roblox kami.\nSilakan join community terlebih dahulu, lalu coba lagi.`);
+                        return interaction.editReply(`❌ Akun **${verification.username}** belum bergabung ke grup Roblox kami.\nSilakan join grup terlebih dahulu, lalu verifikasi ulang.`);
                     }
 
-                    // Cek apakah user ada di database
                     let userRecord = await User.findOne({ discordId });
-                    
-                    // Jika belum ada, buat record baru dengan createdAt = hari ini (saat dia verifikasi)
                     if (!userRecord) {
                         userRecord = await User.create({
                             discordId,
@@ -1288,30 +3011,26 @@ module.exports = {
                             eligibleForPayout: false
                         });
                     } else {
-                        // Jika sudah ada, update datanya
                         userRecord.robloxId = verification.id;
                         userRecord.robloxUsername = verification.username;
                         userRecord.verified = true;
                     }
 
-                    // Check community join duration using userRecord.createdAt (tanggal dia verifikasi)
-                    // Karena Roblox API tidak menyediakan tanggal join grup, kita menghitung 14 hari
-                    // dimulai dari saat user mendaftarkan akunnya di sistem ini.
-                    const joinedAt = userRecord.createdAt;
+                    const joinedAt = userRecord.createdAt || new Date();
                     const diffTime = Math.abs(new Date() - joinedAt);
                     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-                    
+
                     const isEligible = diffDays >= 14;
                     userRecord.eligibleForPayout = isEligible;
                     await userRecord.save();
 
-                    let dmMessage = `✅ Roblox account berhasil diverifikasi sebagai **${verification.username}** (ID: ${verification.id})\n\n`;
-                    dmMessage += `📅 Kamu sudah bergabung di **Community Roblox** ini selama **${diffDays} hari** (dihitung sejak tanggal verifikasi).\n`;
-                    
+                    const brandingName = await settingsService.get('branding_name', 'LyraBlox');
+                    let dmMessage = `✅ **Roblox account berhasil diverifikasi sebagai ${verification.username}** (ID: ${verification.id})\n\n` +
+                                    `📅 Kamu sudah terdaftar di sistem kami selama **${diffDays} hari**.\n`;
+
                     if (isEligible) {
-                        dmMessage += `🎉 **Selamat!** Kamu sudah memenuhi syarat durasi bergabung (14 hari) di Community untuk menerima Robux Payout.`;
-                        
-                        const roleId = process.env.ELIGIBLE_ROLE_ID;
+                        dmMessage += `🎉 **Selamat!** Kamu sudah memenuhi syarat durasi bergabung (14 hari) untuk menerima Robux Payout.`;
+                        const roleId = await settingsService.get('eligible_role_id', process.env.ELIGIBLE_ROLE_ID);
                         if (roleId) {
                             try {
                                 await interaction.member.roles.add(roleId);
@@ -1320,21 +3039,402 @@ module.exports = {
                             }
                         }
                     } else {
-                        dmMessage += `⏳ Kamu masih belum memenuhi syarat durasi Community Roblox (butuh 14 hari). Sisa waktu: **${14 - diffDays} hari** lagi.`;
+                        dmMessage += `⏳ Kamu masih belum memenuhi syarat durasi bergabung 14 hari. Sisa waktu: **${14 - diffDays} hari** lagi.`;
+                    }
+
+                    // Log to payout log channel
+                    const payoutChannelId = await settingsService.get('payout_log_channel_id', '1518214414254211202');
+                    const payoutChannel = await client.channels.fetch(payoutChannelId).catch(() => null);
+                    if (payoutChannel) {
+                        const playerInfo = await noblox.getPlayerInfo(verification.id).catch(() => null);
+                        if (playerInfo) {
+                            const accCreatedDate = new Date(playerInfo.joinDate);
+                            const accAgeDays = playerInfo.age || 0;
+                            const accAgeYears = Math.floor(accAgeDays / 365);
+                            const accAgeMonths = Math.floor((accAgeDays % 365) / 30);
+                            const accAgeRemainingDays = (accAgeDays % 365) % 30;
+                            const accAgeString = `${accAgeDays} days • ${accAgeYears > 0 ? accAgeYears + ' yr ' : ''}${accAgeMonths} mo ${accAgeRemainingDays} d`;
+
+                            const eligibleDate = new Date();
+                            eligibleDate.setDate(eligibleDate.getDate() + 14);
+
+                            const monitorEmbed = new EmbedBuilder()
+                                .setTitle(`Community Monitor • ${brandingName}`)
+                                .setDescription(`${playerInfo.displayName} ( @${playerInfo.username} )\n✅ Member Joined the Community`)
+                                .setThumbnail(`https://www.roblox.com/headshot-thumbnail/image?userId=${verification.id}&width=420&height=420&format=png`)
+                                .addFields(
+                                    { name: '🆔 Username', value: `@${playerInfo.username}`, inline: true },
+                                    { name: '👤 User ID', value: `${verification.id}`, inline: true },
+                                    { name: '📅 Account Created', value: `<t:${Math.floor(accCreatedDate.getTime() / 1000)}:f>`, inline: true },
+                                    { name: '⏳ Account Age', value: accAgeString, inline: true },
+                                    { name: '📥 Join Community Date', value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: true },
+                                    { name: '✅ Eligible Date (+14 Days)', value: `<t:${Math.floor(eligibleDate.getTime() / 1000)}:f>`, inline: true }
+                                )
+                                .setFooter({ text: `${brandingName} • Join Event`, iconURL: interaction.guild.iconURL() })
+                                .setColor('#2b2d31')
+                                .setTimestamp();
+
+                            const row = new ActionRowBuilder().addComponents(
+                                new ButtonBuilder()
+                                    .setCustomId(`check_eligibility_${interaction.user.id}`)
+                                    .setLabel('🔄 Update Status Payout')
+                                    .setStyle(ButtonStyle.Primary)
+                            );
+
+                            await payoutChannel.send({ content: `<@${interaction.user.id}> telah bergabung dan diverifikasi!`, embeds: [monitorEmbed], components: [row] }).catch(() => {});
+                        }
                     }
 
                     try {
                         await interaction.user.send(dmMessage);
                         await interaction.editReply('✅ Verifikasi berhasil diproses! Silakan cek pesan masuk (DM) Anda dari bot ini.');
                     } catch (dmError) {
-                        console.error('Failed to DM user:', dmError);
                         await interaction.editReply(`✅ Verifikasi berhasil! Namun bot tidak dapat mengirimkan DM ke akun Anda (DM ditutup).\n\n${dmMessage}`);
                     }
                 } catch (error) {
                     console.error('Verify error:', error);
-                    await interaction.editReply('❌ Terjadi kesalahan saat memverifikasi akun Anda.');
+                    await interaction.editReply('❌ Terjadi kesalahan saat memverify akun Anda.');
+                }
+                return;
+            }
+
+            // Dynamic Product Modal Submit
+            if (customId.startsWith('submit_product_buy:')) {
+                const productId = customId.replace('submit_product_buy:', '');
+                await interaction.deferReply({ ephemeral: true });
+
+                try {
+                    const product = await Product.findById(productId);
+                    if (!product || !product.active) {
+                        return interaction.editReply('❌ Produk tidak ditemukan atau sudah tidak aktif.');
+                    }
+
+                    const details = {};
+                    let qty = 1;
+                    let qtyFieldId = null;
+
+                    for (const field of product.fields) {
+                        const answer = interaction.fields.getTextInputValue(field.customId);
+                        details[field.label] = answer;
+
+                        if (/quantity|amount|robux|jumlah/i.test(field.customId)) {
+                            qtyFieldId = field.customId;
+                            const parsedQty = parseInt(answer);
+                            if (!isNaN(parsedQty) && parsedQty > 0) {
+                                qty = parsedQty;
+                            }
+                        }
+                    }
+
+                    if (product.pricingType === 'PER_ROBUX') {
+                        if (!qtyFieldId) {
+                            return interaction.editReply('❌ Konfigurasi modal salah: Tidak ada input field untuk jumlah Robux.');
+                        }
+                        const answer = interaction.fields.getTextInputValue(qtyFieldId);
+                        const parsedQty = parseInt(answer);
+                        if (isNaN(parsedQty) || parsedQty <= 0) {
+                            return interaction.editReply('❌ Jumlah pembelian Robux harus berupa angka yang valid.');
+                        }
+                        qty = parsedQty;
+                    }
+
+                    let subtotal = 0;
+                    let rounding = 0;
+                    let totalPay = 0;
+
+                    if (product.pricingType === 'PER_ROBUX') {
+                        subtotal = qty * product.price;
+                        totalPay = Math.ceil(subtotal / 500) * 500;
+                        rounding = totalPay - subtotal;
+                    } else {
+                        if (qtyFieldId) {
+                            subtotal = qty * product.price;
+                            totalPay = subtotal;
+                        } else {
+                            subtotal = product.price;
+                            totalPay = subtotal;
+                        }
+                        rounding = 0;
+                    }
+
+                    const totalOrders = await Order.countDocuments();
+                    const orderId = `LB-${String(totalOrders + 1).padStart(6, '0')}`;
+
+                    let categoryId = product.categoryId;
+                    if (!categoryId) {
+                        categoryId = await settingsService.get('global_ticket_category_id');
+                    }
+                    
+                    const ticketCategory = categoryId ? await interaction.guild.channels.fetch(categoryId).catch(() => null) : null;
+
+                    const staffRoleId = await settingsService.get('staff_role_id');
+                    const adminRoleId = await settingsService.get('admin_role_id');
+                    const ownerRoleId = await settingsService.get('owner_role_id');
+
+                    const permissions = [
+                        { id: interaction.guild.id, deny: ['ViewChannel'] },
+                        { id: interaction.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] },
+                        { id: client.user.id, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory', 'ManageChannels'] }
+                    ];
+
+                    const targetStaffRole = product.staffRoleId || staffRoleId;
+                    if (targetStaffRole) {
+                        permissions.push({ id: targetStaffRole, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] });
+                    }
+                    if (adminRoleId && adminRoleId !== targetStaffRole) {
+                        permissions.push({ id: adminRoleId, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] });
+                    }
+                    if (ownerRoleId && ownerRoleId !== targetStaffRole && ownerRoleId !== adminRoleId) {
+                        permissions.push({ id: ownerRoleId, allow: ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] });
+                    }
+
+                    const channelName = `buy-${product.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${interaction.user.username}`;
+                    const channel = await interaction.guild.channels.create({
+                        name: channelName,
+                        type: 0,
+                        parent: ticketCategory ? ticketCategory.id : null,
+                        permissionOverwrites: permissions
+                    });
+
+                    await Order.create({
+                        orderId,
+                        userId: interaction.user.id,
+                        productName: product.pricingType === 'PER_ROBUX' ? `${product.name} (x${qty})` : product.name,
+                        price: totalPay,
+                        subtotal,
+                        rounding,
+                        status: 'pending',
+                        channelId: channel.id,
+                        details,
+                        snapshot: {
+                            productType: product.name,
+                            productName: product.name,
+                            amount: qty,
+                            price: product.price,
+                            rate: null,
+                            timestamp: Date.now()
+                        }
+                    });
+
+                    await Ticket.create({
+                        ticketId: channel.id,
+                        ownerId: interaction.user.id,
+                        productId: product._id,
+                        productName: product.name,
+                        orderId,
+                        status: 'open'
+                    });
+
+                    // Update Voice Status
+                    const voiceStatusService = require('../services/voiceStatusService');
+                    voiceStatusService.updateAllVoiceStatuses(interaction.client);
+                    const brandingName = await settingsService.get('branding_name', 'LyraBlox');
+                    const title = product.embed.title || `Beli ${product.name}`;
+                    const description = product.embed.description || `Halo ${interaction.user}, terima kasih telah memesan produk ini!`;
+                    const color = product.embed.color || '#0099ff';
+                    const thumbnail = product.embed.thumbnail;
+                    const banner = product.embed.banner;
+                    const footer = product.embed.footer || `${brandingName} Store`;
+
+                    const ticketEmbed = new EmbedBuilder()
+                        .setTitle(title)
+                        .setDescription(description)
+                        .setColor(color)
+                        .setFooter({ text: footer })
+                        .setTimestamp();
+
+                    if (thumbnail) ticketEmbed.setThumbnail(thumbnail);
+                    if (banner) ticketEmbed.setImage(banner);
+
+                    let modalResponsesStr = '';
+                    for (const [label, answer] of Object.entries(details)) {
+                        modalResponsesStr += `• **${label}:** ${answer}\n`;
+                    }
+                    ticketEmbed.addFields({ name: '📋 Data Formulir:', value: modalResponsesStr || 'Tidak ada data formulir.' });
+
+                    let priceBreakdownStr = '';
+                    if (product.pricingType === 'PER_ROBUX') {
+                        priceBreakdownStr = `• **Robux:** ${qty.toLocaleString('id-ID')}\n` +
+                                            `• **Harga / Robux:** Rp ${product.price.toLocaleString('id-ID')}\n` +
+                                            `• **Subtotal:** Rp ${subtotal.toLocaleString('id-ID')}\n` +
+                                            `• **Pembulatan:** +Rp ${rounding.toLocaleString('id-ID')}\n` +
+                                            `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                                            `• **Total Bayar:** **Rp ${totalPay.toLocaleString('id-ID')}**`;
+                    } else {
+                        if (qtyFieldId) {
+                            priceBreakdownStr = `• **Jumlah:** ${qty}\n` +
+                                                `• **Harga Satuan:** Rp ${product.price.toLocaleString('id-ID')}\n` +
+                                                `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                                                `• **Total Bayar:** **Rp ${totalPay.toLocaleString('id-ID')}**`;
+                        } else {
+                            priceBreakdownStr = `• **Total Bayar:** **Rp ${totalPay.toLocaleString('id-ID')}**`;
+                        }
+                    }
+
+                    ticketEmbed.addFields({ name: '💵 Rincian Pembayaran:', value: priceBreakdownStr });
+
+                    const row = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId(`order_deliver_${orderId}`).setLabel('Mark Delivered').setStyle(ButtonStyle.Success),
+                        new ButtonBuilder().setCustomId(`order_cancel_${orderId}`).setLabel('Cancel Order').setStyle(ButtonStyle.Secondary),
+                        new ButtonBuilder().setCustomId('ticket_close').setLabel('Close Ticket').setStyle(ButtonStyle.Danger)
+                    );
+
+                    const staffMention = targetStaffRole ? `<@&${targetStaffRole}>` : '';
+                    const adminMention = adminRoleId ? `<@&${adminRoleId}>` : '';
+                    await channel.send({ content: `${interaction.user} | ${staffMention} ${adminMention}`, embeds: [ticketEmbed], components: [row] });
+
+                    await interaction.editReply(`✅ Tiket pesanan berhasil dibuat! Silakan masuk ke: ${channel}`);
+                } catch (err) {
+                    logger.error('[InteractionCreate] Error submitting dynamic buy modal:', err);
+                    return interaction.editReply('❌ Terjadi kesalahan saat memproses pesanan Anda.');
                 }
             }
         }
-    },
+
+        if (interaction.isModalSubmit()) {
+            if (interaction.customId === 'modal_inventory_management') {
+                const gigStockStr = interaction.fields.getTextInputValue('input_gig_stock');
+                const sendStockStr = interaction.fields.getTextInputValue('input_send_stock');
+
+                const gigStock = parseInt(gigStockStr.replace(/[^0-9]/g, '')) || 0;
+                const sendStock = parseInt(sendStockStr.replace(/[^0-9]/g, '')) || 0;
+
+                const configService = require('../services/configService');
+                
+                try {
+                    await configService.updateInventory('GIG', gigStock, interaction.user.username, interaction.user.id);
+                    await configService.updateInventory('SEND', sendStock, interaction.user.username, interaction.user.id);
+                    
+                    // Force Voice Sync immediately for responsiveness
+                    const voiceStatusService = require('../services/voiceStatusService');
+                    voiceStatusService.updateAllVoiceStatuses(interaction.client);
+                    
+                    // Refresh Dashboard message
+                    const { buildDashboardMessage } = require('../services/storeService');
+                    const newDashboard = await buildDashboardMessage(interaction.client);
+                    
+                    // We need to fetch the original message to edit it, or just use interaction.update() if we clicked the button
+                    // Wait, this is a modal submit from the button. So update() edits the message where the button was.
+                    await interaction.update({ embeds: newDashboard.embeds, components: newDashboard.components });
+                } catch (err) {
+                    logger.error('[Dashboard] Error updating inventory:', err);
+                    await interaction.reply({ content: '❌ Terjadi kesalahan saat menyimpan Inventory.', ephemeral: true });
+                }
+            } else if (interaction.customId === 'modal_gig_config') {
+                const gigRateStr = interaction.fields.getTextInputValue('input_gig_rate');
+                const gigRate = parseInt(gigRateStr.replace(/[^0-9]/g, ''));
+                
+                if (isNaN(gigRate) || gigRate <= 0) {
+                    return interaction.reply({ content: '❌ GIG Rate tidak valid. Harap masukkan angka yang benar (contoh: 90).', ephemeral: true });
+                }
+
+                const configService = require('../services/configService');
+                
+                try {
+                    await configService.updateGlobalRate(gigRate, interaction.user.username, interaction.user.id);
+                    
+                    // Force Voice Sync immediately for responsiveness
+                    const voiceStatusService = require('../services/voiceStatusService');
+                    voiceStatusService.updateAllVoiceStatuses(interaction.client);
+                    
+                    // Refresh Dashboard message
+                    const { buildDashboardMessage } = require('../services/storeService');
+                    const newDashboard = await buildDashboardMessage(interaction.client);
+                    
+                    // Sync GIG Panel
+                    const robuxService = require('../services/robuxService');
+                    await robuxService.syncGigPanel(interaction.client);
+
+                    await interaction.update({ embeds: newDashboard.embeds, components: newDashboard.components });
+                } catch (err) {
+                    logger.error('[Dashboard] Error updating GIG Rate:', err);
+                    await interaction.reply({ content: '❌ Terjadi kesalahan saat menyimpan GIG Rate.', ephemeral: true });
+                }
+            } else if (interaction.customId === 'modal_product_management') {
+                await interaction.deferReply({ ephemeral: true });
+                const rawPackages = interaction.fields.getTextInputValue('input_packages');
+                const productType = interaction.fields.getTextInputValue('input_product_type'); // We use a hidden-like text input for type
+
+                const lines = rawPackages.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                const newPackages = [];
+                let order = 1;
+                for (const line of lines) {
+                    // Expecting format: Robux=Price or Robux:Price or Robux-Price
+                    const parts = line.split(/[=:\-]/);
+                    if (parts.length === 2) {
+                        const amount = parseInt(parts[0].replace(/[^0-9]/g, ''));
+                        const price = parseInt(parts[1].replace(/[^0-9]/g, ''));
+                        if (!isNaN(amount) && !isNaN(price)) {
+                            newPackages.push({ type: productType, amount, price, displayOrder: order++, isActive: true });
+                        }
+                    }
+                }
+
+                if (newPackages.length === 0) {
+                    return interaction.editReply({ content: '❌ Format paket tidak valid. Gunakan format: Robux=Harga\nContoh:\n80=16000\n160=32000' });
+                }
+
+                const configService = require('../services/configService');
+                const RobuxPackage = require('../models/RobuxPackage');
+
+                try {
+                    // Soft delete all existing packages for this type
+                    await RobuxPackage.updateMany({ type: productType }, { isActive: false });
+                    
+                    // Insert new packages
+                    for (const pkgData of newPackages) {
+                        await configService.createProductPackage(productType, pkgData, interaction.user.username, interaction.user.id);
+                    }
+
+                    // Refresh Product Panel (Requires robuxService to use configService)
+                    const robuxService = require('../services/robuxService');
+                    if (productType === 'LOGIN') await robuxService.syncVilogPanel(interaction.client);
+                    if (productType === 'SEND') await robuxService.syncVisendPanel(interaction.client);
+                    
+                    // Respond to interaction since it's a modal submission on an ephemeral message
+                    await interaction.editReply({ content: `✅ Pricelist untuk ${productType} berhasil diperbarui!` });
+                } catch (err) {
+                    logger.error(`[Dashboard] Error updating product packages for ${productType}:`, err);
+                    await interaction.editReply({ content: '❌ Terjadi kesalahan saat memperbarui Pricelist.' });
+                }
+            }
+        }
+
+        if (interaction.isStringSelectMenu()) {
+            if (interaction.customId === 'dashboard_select_product_type') {
+                const productType = interaction.values[0];
+                const configService = require('../services/configService');
+                
+                // Fetch existing active packages to pre-fill the modal
+                const packages = await configService.getProductPackages(productType);
+                let currentText = packages.map(p => `${p.amount}=${p.price}`).join('\n');
+                if (!currentText) currentText = '80=16000\n160=32000';
+
+                const modal = new ModalBuilder()
+                    .setCustomId('modal_product_management')
+                    .setTitle(`Kelola Pricelist: ${productType}`);
+
+                const typeInput = new TextInputBuilder()
+                    .setCustomId('input_product_type')
+                    .setLabel('Product Type (JANGAN DIUBAH)')
+                    .setStyle(TextInputStyle.Short)
+                    .setValue(productType)
+                    .setRequired(true);
+
+                const packagesInput = new TextInputBuilder()
+                    .setCustomId('input_packages')
+                    .setLabel('Format: Robux=Harga (Satu per baris)')
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setValue(currentText)
+                    .setRequired(true);
+
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(typeInput),
+                    new ActionRowBuilder().addComponents(packagesInput)
+                );
+
+                return await interaction.showModal(modal);
+            }
+        }
+    }
 };

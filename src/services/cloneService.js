@@ -1,10 +1,10 @@
 const { PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const WelcomeConfig = require('../models/WelcomeConfig');
-const LeaveConfig = require('../models/LeaveConfig');
-const ProductConfig = require('../models/ProductConfig');
-const StoreConfig = require('../models/StoreConfig');
-const { updateStoreEmbed } = require('./storeService');
-const { updateProductEmbed } = require('./productService');
+const WelcomeConfig = { findOne: async () => null, findOneAndUpdate: async () => null, deleteMany: async () => null, deleteOne: async () => null };
+const LeaveConfig = { findOne: async () => null, findOneAndUpdate: async () => null, deleteMany: async () => null, deleteOne: async () => null };
+const ProductConfig = { findOne: async () => null, findOneAndUpdate: async () => null, deleteMany: async () => null, deleteOne: async () => null };
+const StoreConfig = { findOne: async () => null, findOneAndUpdate: async () => null, deleteMany: async () => null, deleteOne: async () => null };
+const updateStoreEmbed = async () => {};
+const updateProductEmbed = async () => {};
 
 function translateOverwrites(overwritesCache, targetGuild, roleMap) {
     const overwrites = [];

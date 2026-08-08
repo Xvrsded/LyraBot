@@ -1,6 +1,16 @@
 const GuildConfig = require('../models/GuildConfig');
+const StoreSetting = require('../models/StoreSetting');
+const RobuxPackage = require('../models/RobuxPackage');
+const MMFee = require('../models/MMFee');
+const auditService = require('./auditService');
 const cacheProvider = require('../utils/cache');
 const logger = require('../utils/logger');
+
+// Dashboard Config Cache Placeholder (Memory for now, Redis-ready)
+const dashboardCache = {
+    globalConfig: null,
+    packages: {}
+};
 
 class ConfigService {
     /**
@@ -143,6 +153,235 @@ class ConfigService {
      */
     cache() {
         return cacheProvider;
+    }
+
+    // ==========================================
+    // DASHBOARD: READERS (Cache-Ready)
+    // ==========================================
+    
+    async getGlobalConfig(forceRefresh = false) {
+        if (!forceRefresh && dashboardCache.globalConfig) {
+            return dashboardCache.globalConfig;
+        }
+        let config = await StoreSetting.findOne();
+        if (!config) {
+            config = await StoreSetting.create({});
+        }
+        dashboardCache.globalConfig = config;
+        return config;
+    }
+
+    async getProductPackages(type, forceRefresh = false) {
+        if (!forceRefresh && dashboardCache.packages[type]) {
+            return dashboardCache.packages[type];
+        }
+        const typesToFetch = type === 'visend' ? ['visend', 'custom'] : [type];
+        const packages = await RobuxPackage.find({ type: { $in: typesToFetch }, isActive: true }).sort({ displayOrder: 1, amount: 1 });
+        dashboardCache.packages[type] = packages;
+        return packages;
+    }
+
+    async getMMFees(forceRefresh = false) {
+        if (!forceRefresh && dashboardCache.mmFees) {
+            return dashboardCache.mmFees;
+        }
+        const fees = await MMFee.find({ isActive: true }).sort({ displayOrder: 1, minAmount: 1 });
+        dashboardCache.mmFees = fees;
+        return fees;
+    }
+
+    // ==========================================
+    // DASHBOARD: WRITERS & SAFE UPDATE FLOW
+    // ==========================================
+    
+    async updateInventory(type, amount, author = 'System', userId = null) {
+        const config = await this.getGlobalConfig(true);
+        const oldAmount = type === 'GIG' ? config.gigStock : config.sendStock;
+        
+        if (type === 'GIG') config.gigStock = amount;
+        if (type === 'SEND') config.sendStock = amount;
+        
+        config.lastUpdatedBy = author;
+        config.lastUpdatedAt = new Date();
+        config.configVersion += 1;
+        
+        await config.save();
+        dashboardCache.globalConfig = config; // Update cache
+
+        // Audit Logging
+        await auditService.info('Dashboard', 'INVENTORY_UPDATE', {
+            userId: userId,
+            metadata: {
+                type,
+                oldValue: oldAmount,
+                newValue: amount
+            }
+        });
+
+        // Trigger Sync
+        await this._triggerSyncRefreshers();
+        return config;
+    }
+
+    async updateGlobalRate(rate, author = 'System', userId = null) {
+        const config = await this.getGlobalConfig(true);
+        const oldRate = config.gigRate;
+        
+        config.gigRate = rate;
+        config.lastUpdatedBy = author;
+        config.lastUpdatedAt = new Date();
+        config.configVersion += 1;
+        
+        await config.save();
+        dashboardCache.globalConfig = config;
+
+        await auditService.info('Dashboard', 'RATE_UPDATE', {
+            userId: userId,
+            metadata: {
+                oldValue: oldRate,
+                newValue: rate
+            }
+        });
+
+        await this._triggerSyncRefreshers();
+        return config;
+    }
+
+    async updateProductPackage(packageId, updateData, author = 'System', userId = null) {
+        const pkg = await RobuxPackage.findById(packageId);
+        if (!pkg) throw new Error('Package not found');
+
+        const oldData = { price: pkg.price, amount: pkg.amount, isActive: pkg.isActive, displayOrder: pkg.displayOrder };
+        
+        Object.assign(pkg, updateData);
+        await pkg.save();
+
+        // Invalidate cache
+        delete dashboardCache.packages[pkg.type];
+        
+        await auditService.info('Dashboard', 'PACKAGE_UPDATE', {
+            userId: userId,
+            metadata: {
+                packageId,
+                type: pkg.type,
+                oldValue: oldData,
+                newValue: updateData
+            }
+        });
+
+        await this._triggerSyncRefreshers();
+        return pkg;
+    }
+
+    async createProductPackage(type, data, author = 'System', userId = null) {
+        const pkg = await RobuxPackage.findOneAndUpdate(
+            { type, amount: data.amount },
+            { ...data, type, isActive: true },
+            { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+        delete dashboardCache.packages[type];
+        
+        await auditService.info('Dashboard', 'PACKAGE_CREATE', {
+            userId: userId,
+            metadata: {
+                type,
+                data
+            }
+        });
+
+        await this._triggerSyncRefreshers();
+        return pkg;
+    }
+
+    async updateMMFee(feeId, updateData, author = 'System', userId = null) {
+        const fee = await MMFee.findById(feeId);
+        if (!fee) throw new Error('MMFee not found');
+        
+        Object.assign(fee, updateData);
+        fee.updatedBy = author;
+        fee.updatedAt = new Date();
+        await fee.save();
+
+        delete dashboardCache.mmFees;
+        
+        await auditService.info('Dashboard', 'MMFEE_UPDATE', {
+            userId: userId,
+            metadata: { feeId, updateData }
+        });
+
+        await this._triggerSyncRefreshers();
+        return fee;
+    }
+
+    async createMMFee(data, author = 'System', userId = null) {
+        const fee = await MMFee.create({ ...data, updatedBy: author });
+        delete dashboardCache.mmFees;
+        
+        await auditService.info('Dashboard', 'MMFEE_CREATE', {
+            userId: userId,
+            metadata: { data }
+        });
+
+        await this._triggerSyncRefreshers();
+        return fee;
+    }
+
+    async toggleMMStatus(status, author = 'System', userId = null) {
+        const config = await this.getGlobalConfig(true);
+        // Initialize mm_rekber if it doesn't exist
+        if (!config.products.mm_rekber) {
+            config.products.mm_rekber = { status: 'OPEN' };
+        }
+        config.products.mm_rekber.status = status;
+        config.lastUpdatedBy = author;
+        config.lastUpdatedAt = new Date();
+        config.configVersion += 1;
+        
+        await config.save();
+        dashboardCache.globalConfig = config;
+
+        await auditService.info('Dashboard', 'MM_STATUS_UPDATE', {
+            userId: userId,
+            metadata: { status }
+        });
+
+        await this._triggerSyncRefreshers();
+        return config;
+    }
+
+    async toggleLimitedStatus(status, author = 'System', userId = null) {
+        const config = await this.getGlobalConfig(true);
+        if (!config.products.limited_item) {
+            config.products.limited_item = { status: 'OPEN' };
+        }
+        config.products.limited_item.status = status;
+        config.lastUpdatedBy = author;
+        config.lastUpdatedAt = new Date();
+        config.configVersion += 1;
+        
+        await config.save();
+        dashboardCache.globalConfig = config;
+
+        await auditService.info('Dashboard', 'LIMITED_STATUS_UPDATE', {
+            userId: userId,
+            metadata: { status }
+        });
+
+        await this._triggerSyncRefreshers();
+        return config;
+    }
+
+    // ==========================================
+    // INTERNAL SYNC MECHANISM
+    // ==========================================
+    
+    async _triggerSyncRefreshers() {
+        try {
+            const eventBus = require('./eventBus');
+            eventBus.emit('config.updated', {});
+        } catch (err) {
+            logger.error('[ConfigService] Failed to trigger sync refreshers:', err);
+        }
     }
 }
 

@@ -43,10 +43,30 @@ require('./utils/mongooseInstrumentation').instrument();
 
 // Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI)
-    .then(() => console.log('✅ MongoDB Connected'))
+    .then(async () => {
+        console.log('✅ MongoDB Connected');
+        try {
+            const RobuxPackage = require('./models/RobuxPackage');
+            const pkg = await RobuxPackage.findOne({ type: 'custom', amount: 150 });
+            if (!pkg) {
+                await RobuxPackage.create({
+                    type: 'custom',
+                    amount: 150,
+                    price: 23500,
+                    label: '150 Robux Custom',
+                    displayOrder: 999
+                });
+                console.log('✅ Created 150 Robux Custom package');
+            }
+        } catch (e) {
+            console.error('❌ Failed to seed custom package:', e.message);
+        }
+    })
     .catch(err => console.error('❌ MongoDB Error:', err));
 
 // Load Handlers
+const startDashboardServer = require('./dashboard/server');
+
 client.login(process.env.TOKEN).then(() => {
     loadEvents(client);
     loadCommands(client);
@@ -54,6 +74,7 @@ client.login(process.env.TOKEN).then(() => {
     startLivePayoutList(client);
     startLiveLeaderboard(client);
     startServerStatsTracker(client);
+    startDashboardServer(client);
 }).catch((err) => {
     console.error('❌ Failed to login:', err);
 });

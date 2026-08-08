@@ -1,9 +1,0 @@
-{
-    "id": "setup",
-    "title": "Setup Wizard",
-    "description": "Run Setup Wizard",
-    "icon": "⚙️",
-    "permission": "ADMINISTRATOR",
-    "order": 20,
-    "visible": true
-}

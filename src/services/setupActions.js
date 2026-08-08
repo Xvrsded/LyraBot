@@ -327,52 +327,11 @@ class ConfigureDatabaseAction extends SetupAction {
     async execute(guild, context) {
         this.status = 'running';
         try {
-            const WelcomeConfig = require('../models/WelcomeConfig');
-            const LeaveConfig = require('../models/LeaveConfig');
             const configService = require('./configService');
 
-            // 1. WelcomeConfig
-            if (this.welcomeConfig) {
-                const welcomeChannelName = this.welcomeConfig.channel || '👋・welcome';
-                const welcomeChannelId = context.channels[welcomeChannelName] || null;
-                const autoRoleId = context.roles['Member'] || null;
-
-                await WelcomeConfig.findOneAndUpdate(
-                    { guildId: guild.id },
-                    {
-                        channelId: welcomeChannelId,
-                        message: this.welcomeConfig.message || 'Welcome to the server!',
-                        autoRole: autoRoleId,
-                        enabled: !!this.welcomeConfig.enabled
-                    },
-                    { upsert: true }
-                );
-                
-                // Update new config service values as well
-                await configService.updateConfig(guild.id, 'welcome.enabled', !!this.welcomeConfig.enabled);
-                await configService.updateConfig(guild.id, 'channels.welcome', welcomeChannelId);
-                await configService.updateConfig(guild.id, 'welcome.autoRole', autoRoleId);
-            }
-
-            // 2. LeaveConfig / Goodbye
-            const goodbyeChannelId = context.channels['🔔・join-leave'] || context.channels['😟✦【goodbye】'] || null;
-            if (goodbyeChannelId) {
-                await LeaveConfig.findOneAndUpdate(
-                    { guildId: guild.id },
-                    {
-                        channelId: goodbyeChannelId,
-                        enabled: true
-                    },
-                    { upsert: true }
-                );
-
-                await configService.updateConfig(guild.id, 'channels.goodbye', goodbyeChannelId);
-            }
-
-            // 3. Sync logs config
-            if (this.logsConfig) {
-                const logChannelId = context.channels['📜・logs'] || context.channels['🛠️【log-transaksi-product】'] || null;
-                await configService.updateConfig(guild.id, 'logs.enabled', !!this.logsConfig.enabled);
+            // Log mapping channel
+            const logChannelId = context.channels['📜・logs'] || context.channels['🛠️【log-transaksi-product】'] || null;
+            if (logChannelId) {
                 await configService.updateConfig(guild.id, 'channels.logs', logChannelId);
             }
 

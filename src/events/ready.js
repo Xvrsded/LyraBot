@@ -15,8 +15,16 @@ module.exports = {
     execute(client) {
         logger.info(`🤖 Login sebagai ${client.user.tag}`);
         
+        // Seed default log channel ID
+        const settingsService = require('../services/settingsService');
+        settingsService.get('log_channel_id').then(async (val) => {
+            if (!val || val === '1517342247199444992') {
+                await settingsService.set('log_channel_id', '1534624789065498795');
+            }
+        }).catch((err) => console.error('Error seeding default log channel:', err));
+        
         client.user.setPresence({
-            activities: [{ name: 'Winter Community', type: ActivityType.Watching }],
+            activities: [{ name: 'LyraBlox Store', type: ActivityType.Watching }],
             status: 'online',
         });
         
@@ -35,6 +43,30 @@ module.exports = {
         scheduler.init(client).catch(err => {
             logger.error('[Ready Event] Scheduler initialization failed:', err);
         });
+
+        // Initialize Copay Service Cron Job
+        const copayService = require('../services/copayService');
+        const jobManager = require('../services/jobManager');
+        jobManager.registerJob('copay_eligibility_check', copayService.handleEligibilityCheck);
+        jobManager.scheduleCron('copay_eligibility_check', '*/5 * * * *', {}).catch(err => {
+            logger.error('[Ready Event] Copay cron scheduling failed:', err);
+        });
+
+        // Initialize Verification System
+        const verificationService = require('../services/verificationService');
+        verificationService.syncPanel(client);
+
+        // Sync MM Rekber Panel
+        const mmRekberService = require('../services/mmRekberService');
+        mmRekberService.syncMMPanel(client);
+
+        // Sync Limited Item Panel
+        const limitedItemService = require('../services/limitedItemService');
+        limitedItemService.syncLimitedPanel(client);
+
+        // Sync Voice Statuses
+        const voiceStatusService = require('../services/voiceStatusService');
+        voiceStatusService.updateAllVoiceStatuses(client);
 
         // Initialize audit & logging framework
         const auditService = require('../services/auditService');
@@ -80,20 +112,9 @@ module.exports = {
         const decisionManager = require('../modules/owoDecision/services/decisionManager');
         decisionManager.init();
 
-        // Initialize Admin Panel Engine
-        const adminPanelManager = require('../modules/adminPanel/services/adminPanelManager');
-        adminPanelManager.init(client);
-
         // Initialize Configuration Center
         const configurationCenter = require('../modules/configurationCenter');
         configurationCenter.init();
-        
-        // Initialize Master Runtime Wiring
-        const runtimeWiring = require('../modules/adminPanel/services/RuntimeWiring');
-        // We need pluginContext which is initialized inside pluginManager
-        const PluginContext = require('../services/pluginContext');
-        const pluginCtx = new PluginContext(client, pluginManager);
-        runtimeWiring.init(client, pluginCtx);
         
         logger.info('[Ready Event] Enterprise Runtime Pipeline Enabled.');
 
@@ -105,23 +126,24 @@ module.exports = {
         // Enterprise API and Gateway frameworks have been decommissioned.
         // See src/archive for disabled code.
 
-        // Update embed every 10 minutes (600000 ms)
-        setInterval(() => {
-            const { updateStoreEmbed } = require('../services/storeService');
-            const { updateAdminPanel } = require('../services/adminService');
-            updateStoreEmbed(client);
-            updateAdminPanel(client);
-        }, 10 * 60 * 1000);
-        
-        // Initial update
         setTimeout(() => {
-            const { updateStoreEmbed } = require('../services/storeService');
-            updateStoreEmbed(client);
+            const { syncVilogPanel, syncVisendPanel, syncGigPanel } = require('../services/robuxService');
+            syncVilogPanel(client);
+            syncVisendPanel(client);
+            syncGigPanel(client);
+            
+            const copayService = require('../services/copayService');
+            copayService.syncCopayPanel(client);
         }, 5000);
-        
+
         setTimeout(() => {
-            const { updateAdminPanel } = require('../services/adminService');
-            updateAdminPanel(client);
-        }, 10000);
+            const dashboardService = require('../services/dashboardService');
+            dashboardService.syncDashboard(client);
+            
+            const leaderboardService = require('../services/leaderboardService');
+            leaderboardService.syncTransactionLogs(client).then(() => {
+                leaderboardService.syncAllCustomerTiers(client);
+            });
+        }, 3000);
     },
 };

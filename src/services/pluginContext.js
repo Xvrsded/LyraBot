@@ -15,7 +15,6 @@ const itemRegistry = require('./itemRegistry');
 const marketplaceEngine = require('./marketplaceEngine');
 const marketplaceSearch = require('./marketplaceSearch');
 const uiManager = require('../modules/ui/services/uiManager');
-const adminPanelManager = require('../modules/adminPanel/services/adminPanelManager');
 const dashboardManager = require('../modules/dashboard/services/dashboardManager');
 const owoDiscoveryManager = require('../modules/owoDiscovery/services/owoDiscoveryManager');
 const owoBehaviorManager = require('../modules/owoBehavior/services/behaviorManager');
@@ -87,7 +86,7 @@ class PluginContext {
         };
 
         // Panel Framework
-        this.panel = adminPanelManager.getPluginApi();
+        this.panel = null;
 
         // Dashboard Framework
         this.dashboard = dashboardManager.getPluginApi();

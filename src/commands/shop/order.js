@@ -58,29 +58,39 @@ module.exports = {
                 }
 
                 const orderId = interaction.options.getString('orderid');
-                const newStatus = subcommand === 'complete' ? 'completed' : 'cancelled';
                 
-                const order = await Order.findOneAndUpdate(
-                    { orderId },
-                    { status: newStatus },
-                    { new: true }
-                );
+                if (subcommand === 'cancel') {
+                    const order = await Order.findOneAndDelete({ orderId });
+                    if (!order) {
+                        return interaction.editReply('❌ Order ID tidak ditemukan.');
+                    }
+                    await interaction.editReply(`✅ Pesanan **${orderId}** telah berhasil dibatalkan dan dihapus.`);
+                } else {
+                    const order = await Order.findOneAndUpdate(
+                        { orderId },
+                        { status: 'success' },
+                        { new: true }
+                    );
 
-                if (!order) {
-                    return interaction.editReply('❌ Order ID tidak ditemukan.');
-                }
+                    if (!order) {
+                        return interaction.editReply('❌ Order ID tidak ditemukan.');
+                    }
 
-                if (newStatus === 'completed') {
                     try {
                         const { triggerLeaderboardUpdate } = require('../../scripts/update_leaderboard');
                         triggerLeaderboardUpdate();
                     } catch (e) {
                         console.error('Failed to trigger leaderboard update:', e);
                     }
-                }
 
-                await interaction.editReply(`✅ Pesanan **${orderId}** telah diubah statusnya menjadi: **${newStatus}**.`);
+                    await interaction.editReply(`✅ Pesanan **${orderId}** telah diubah statusnya menjadi: **SUCCESS**.`);
+                }
             }
+
+            // Update Voice Status
+            const voiceStatusService = require('../../services/voiceStatusService');
+            voiceStatusService.updateAllVoiceStatuses(interaction.client);
+
         } catch (error) {
             console.error(error);
             await interaction.editReply('❌ Terjadi kesalahan sistem.');

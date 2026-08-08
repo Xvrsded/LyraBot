@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LyraBlox Bot Dashboard</title>
+    <!-- Inter Google Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Login Screen -->
+    <div id="login-container" class="glass-panel">
+        <div class="login-header">
+            <h2>LyraBlox</h2>
+            <p>Enter credentials to access the bot dashboard</p>
+        </div>
+        <form id="login-form">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" required placeholder="admin">
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" required placeholder="••••••••">
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">Sign In</button>
+            <div id="login-error" class="alert alert-danger hidden"></div>
+        </form>
+    </div>
+
+    <!-- Main Dashboard Application -->
+    <div id="dashboard-container" class="hidden">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <h2>LyraBlox</h2>
+                <span>Bot Panel</span>
+            </div>
+            <nav class="sidebar-menu">
+                <a href="#" class="menu-item active" data-tab="stats">
+                    <span class="icon">📈</span> Statistics
+                </a>
+                <a href="#" class="menu-item" data-tab="products">
+                    <span class="icon">📦</span> Products
+                </a>
+                <a href="#" class="menu-item" data-tab="pricing">
+                    <span class="icon">💎</span> Pricing
+                </a>
+                <a href="#" class="menu-item" data-tab="ticket-settings">
+                    <span class="icon">🎫</span> Ticket Settings
+                </a>
+                <a href="#" class="menu-item" data-tab="channels">
+                    <span class="icon">🗺️</span> Channels
+                </a>
+                <a href="#" class="menu-item" data-tab="roles">
+                    <span class="icon">👥</span> Roles
+                </a>
+                <a href="#" class="menu-item" data-tab="embeds">
+                    <span class="icon">✨</span> Embeds
+                </a>
+                <a href="#" class="menu-item" data-tab="orders">
+                    <span class="icon">🛒</span> Orders
+                </a>
+                <a href="#" class="menu-item" data-tab="settings">
+                    <span class="icon">⚙️</span> Settings
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <button id="btn-sync" class="btn btn-secondary btn-block" style="margin-bottom: 10px;">⚡ Sync Discord Panels</button>
+                <button id="btn-refresh" class="btn btn-primary btn-block" style="margin-bottom: 10px;">🔄 Refresh Server</button>
+                <button id="btn-logout" class="btn btn-danger btn-block">Log Out</button>
+            </div>
+        </aside>
+
+        <!-- Main Workspace -->
+        <main class="main-content">
+            <header class="content-header">
+                <h1 id="tab-title">Statistics</h1>
+                <div class="user-profile">
+                    <span class="badge badge-success">Online</span>
+                    <span class="username-display">Administrator</span>
+                </div>
+            </header>
+
+            <!-- Dynamic Tab Contents -->
+            <div class="content-body">
+                <!-- Statistics Tab -->
+                <div id="tab-stats" class="tab-panel">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <h3>Total Revenue</h3>
+                            <p id="stat-revenue" class="stat-value">Rp0</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Completed Orders</h3>
+                            <p id="stat-completed-orders" class="stat-value">0</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Pending Orders</h3>
+                            <p id="stat-pending-orders" class="stat-value">0</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Total Tickets</h3>
+                            <p id="stat-total-tickets" class="stat-value">0</p>
+                        </div>
+                    </div>
+
+                    <div class="card" style="margin-top: 24px;">
+                        <div class="card-header">
+                            <h2>Recent Orders</h2>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Order ID</th>
+                                        <th>Customer</th>
+                                        <th>Product</th>
+                                        <th>Price</th>
+                                        <th>Status</th>
+                                        <th>Date</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="recent-orders-table">
+                                    <!-- Dynamic Rows -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Products Tab -->
+                <div id="tab-products" class="tab-panel hidden">
+                    <div class="action-bar">
+                        <button id="btn-add-product" class="btn btn-primary">+ Add Product</button>
+                    </div>
+                    <div class="products-grid" id="products-list">
+                        <!-- Dynamic Cards -->
+                    </div>
+                </div>
+
+                <!-- Pricing Tab -->
+                <div id="tab-pricing" class="tab-panel hidden">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>Dynamic Robux Payout Rates</h2>
+                            <p>Configure rates per Robux for payout products dynamically. Changes apply instantly without restarting the bot.</p>
+                        </div>
+                        <form id="pricing-form">
+                            <div id="pricing-rates-container">
+                                <!-- Dynamic pricing inputs -->
+                            </div>
+                            <button type="submit" class="btn btn-primary" style="margin-top: 15px;">Save Rates</button>
+                        </form>
+                    </div>
+
+                    <div class="card" style="margin-top: 24px;">
+                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                            <div>
+                                <h2>Robux Via Login (Vilog) Packages</h2>
+                                <p>Manage packages, edit pricing, change order, or disable tiers for Vilog products dynamically.</p>
+                            </div>
+                            <div style="display: flex; gap: 10px;">
+                                <button id="btn-sync-vilog" class="btn btn-secondary btn-sm">⚡ Sync Vilog Panel</button>
+                                <button id="btn-add-vilog" class="btn btn-primary btn-sm">+ Add Package</button>
+                            </div>
+                        </div>
+                        <div class="table-responsive" style="margin-top: 15px;">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Robux Amount</th>
+                                        <th>Price (IDR)</th>
+                                        <th>Sort Order</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="vilog-packages-table-body">
+                                    <!-- Dynamic rows -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Ticket Settings Tab -->
+                <div id="tab-ticket-settings" class="tab-panel hidden">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>Ticket Configuration</h2>
+                        </div>
+                        <form id="ticket-settings-form">
+                            <div class="form-group">
+                                <label for="global_ticket_category_id">Default Discord Ticket Category ID</label>
+                                <input type="text" id="global_ticket_category_id" class="form-control" placeholder="1517541756105916486">
+                            </div>
+                            <div class="form-group mb-3">
+                                <label for="vilog_category_id">Vilog Ticket Category ID</label>
+                                <input type="text" id="vilog_category_id" class="form-control" placeholder="1534575980788584468">
+                            </div>
+                            <div class="form-group mb-3">
+                                <label for="visend_category_id">Visend Ticket Category ID</label>
+                                <input type="text" id="visend_category_id" class="form-control" placeholder="1534576102134255807">
+                            </div>
+                            <button type="submit" class="btn btn-primary" style="margin-top: 15px;">Save Settings</button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Channels Tab -->
+                <div id="tab-channels" class="tab-panel hidden">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>Channel Configuration mappings</h2>
+                        </div>
+                        <form id="channels-form">
+                            <div class="form-group">
+                                <label for="log_channel_id">Log Channel ID</label>
+                                <input type="text" id="log_channel_id" class="form-control" placeholder="1517637984705319033">
+                            </div>
+                            <div class="form-group">
+                                <label for="payout_log_channel_id">Payout / Verification Monitor Channel ID</label>
+                                <input type="text" id="payout_log_channel_id" class="form-control" placeholder="1518214414254211202">
+                            </div>
+                            <div class="form-group mb-3">
+                                <label for="vilog_channel_id">Vilog Pricelist Channel ID</label>
+                                <input type="text" id="vilog_channel_id" class="form-control" placeholder="1534575980788584468">
+                            </div>
+                            <div class="form-group mb-3">
+                                <label for="visend_channel_id">Visend Pricelist Channel ID</label>
+                                <input type="text" id="visend_channel_id" class="form-control" placeholder="1534576102134255807">
+                            </div>
+                            <div class="form-group" style="margin-top: 15px;">
+                                <label for="admin_panel_channel_id">Admin Panel Channel ID</label>
+                                <input type="text" id="admin_panel_channel_id" class="form-control" placeholder="Channel ID untuk Master Admin Panel">
+                            </div>
+                            <button type="submit" class="btn btn-primary" style="margin-top: 15px;">Save Channels</button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Roles Tab -->
+                <div id="tab-roles" class="tab-panel hidden">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>Staff / Admin Roles</h2>
+                        </div>
+                        <form id="roles-form">
+                            <div class="form-group">
+                                <label for="staff_role_id">Global Staff Role ID</label>
+                                <input type="text" id="staff_role_id" class="form-control">
+                            </div>
+                            <div class="form-group">
+                                <label for="admin_role_id">Global Admin Role ID</label>
+                                <input type="text" id="admin_role_id" class="form-control">
+                            </div>
+                            <div class="form-group">
+                                <label for="owner_role_id">Global Owner Role ID</label>
+                                <input type="text" id="owner_role_id" class="form-control">
+                            </div>
+                            <div class="form-group">
+                                <label for="eligible_role_id">Payout Eligible Role ID</label>
+                                <input type="text" id="eligible_role_id" class="form-control">
+                            </div>
+                            <button type="submit" class="btn btn-primary">Save Roles</button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Embeds Tab -->
+                <div id="tab-embeds" class="tab-panel hidden">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>Product Embed Design</h2>
+                            <p>Customize the announcement layout and modals for each active product.</p>
+                        </div>
+                        <div class="form-group">
+                            <label for="embed-select-product">Select Product to Design</label>
+                            <select id="embed-select-product" class="form-control">
+                                <!-- Dynamic options -->
+                            </select>
+                        </div>
+                        <div id="embed-editor-container" class="hidden">
+                            <form id="embed-editor-form">
+                                <div class="grid-2">
+                                    <div>
+                                        <h3>Embed Properties</h3>
+                                        <div class="form-group">
+                                            <label for="embed_title">Title</label>
+                                            <input type="text" id="embed_title" class="form-control">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="embed_description">Description (Markdown Supported)</label>
+                                            <textarea id="embed_description" rows="5" class="form-control"></textarea>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="embed_color">Embed Hex Color</label>
+                                            <input type="color" id="embed_color" class="form-color">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="embed_thumbnail">Thumbnail Image URL</label>
+                                            <input type="url" id="embed_thumbnail" class="form-control">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="embed_banner">Banner Image URL</label>
+                                            <input type="url" id="embed_banner" class="form-control">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="embed_footer">Footer Text</label>
+                                            <input type="text" id="embed_footer" class="form-control">
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <h3>Button Properties</h3>
+                                        <div class="form-group">
+                                            <label for="button_label">Button Label</label>
+                                            <input type="text" id="button_label" class="form-control">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="button_emoji">Button Emoji</label>
+                                            <input type="text" id="button_emoji" class="form-control">
+                                        </div>
+
+                                        <h3 style="margin-top: 25px;">Form Modal Fields</h3>
+                                        <p style="font-size: 0.85em; color: #a0aec0; margin-bottom: 10px;">Max 5 fields allowed. Field ID matching 'quantity', 'amount', 'robux', or 'jumlah' triggers calculations for Robux payout rates.</p>
+                                        <div id="modal-fields-list">
+                                            <!-- Dynamic fields list -->
+                                        </div>
+                                        <button type="button" id="btn-add-modal-field" class="btn btn-secondary btn-sm" style="margin-top: 10px;">+ Add Form Field</button>
+                                    </div>
+                                </div>
+                                <button type="submit" class="btn btn-primary" style="margin-top: 20px;">Save Design</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Orders Tab -->
+                <div id="tab-orders" class="tab-panel hidden">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>Manage Orders</h2>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Order ID</th>
+                                        <th>Customer</th>
+                                        <th>Product</th>
+                                        <th>Price</th>
+                                        <th>Form Responses</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="orders-table-body">
+                                    <!-- Dynamic rows -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Settings Tab -->
+                <div id="tab-settings" class="tab-panel hidden">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>Branding & General Settings</h2>
+                        </div>
+                        <form id="general-settings-form">
+                            <div class="form-group">
+                                <label for="branding_name">Store / Brand Name</label>
+                                <input type="text" id="branding_name" class="form-control" placeholder="LyraBlox">
+                            </div>
+                            <div class="form-group">
+                                <label for="guild_id">Discord Guild ID (Server ID)</label>
+                                <input type="text" id="guild_id" class="form-control">
+                            </div>
+                            <button type="submit" class="btn btn-primary">Save General Settings</button>
+                        </form>
+                    </div>
+
+                    <div class="card" style="margin-top: 20px;">
+                        <div class="card-header">
+                            <h2>LyraBlox Control Center Product Statuses</h2>
+                        </div>
+                        <form id="control-center-settings-form">
+                            <div class="form-group">
+                                <label for="products.robux_login.enabled">Robux Via Login Status</label>
+                                <select id="products.robux_login.enabled" class="form-control">
+                                    <option value="true">🟢 OPEN</option>
+                                    <option value="false">🔴 CLOSED</option>
+                                </select>
+                            </div>
+                            <div class="form-group" style="margin-top: 15px;">
+                                <label for="products.robux_send.enabled">Robux Via Send Status</label>
+                                <select id="products.robux_send.enabled" class="form-control">
+                                    <option value="true">🟢 OPEN</option>
+                                    <option value="false">🔴 CLOSED</option>
+                                </select>
+                            </div>
+                            <div class="form-group" style="margin-top: 15px;">
+                                <label for="products.gift_in_game.enabled">Gift In Game Status</label>
+                                <select id="products.gift_in_game.enabled" class="form-control">
+                                    <option value="true">🟢 OPEN</option>
+                                    <option value="false">🔴 CLOSED</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn btn-primary" style="margin-top: 15px;">Save Product Statuses</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Add/Edit Product Modal Dialog -->
+    <div id="product-modal" class="modal-overlay hidden">
+        <div class="modal-content glass-panel">
+            <h2 id="product-modal-title">Add Product</h2>
+            <form id="product-form">
+                <input type="hidden" id="product_id">
+                <div class="form-group">
+                    <label for="product_name">Product Name</label>
+                    <input type="text" id="product_name" required class="form-control">
+                </div>
+                <div class="form-group">
+                    <label for="product_desc">Description</label>
+                    <textarea id="product_desc" required rows="3" class="form-control"></textarea>
+                </div>
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label for="product_channel">Display Channel ID</label>
+                        <input type="text" id="product_channel" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label for="product_category">Ticket Category ID</label>
+                        <input type="text" id="product_category" class="form-control">
+                    </div>
+                </div>
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label for="product_staff_role">Ticket Handler Role ID</label>
+                        <input type="text" id="product_staff_role" class="form-control" placeholder="Leave blank to use global">
+                    </div>
+                    <div class="form-group">
+                        <label for="product_pricing_type">Pricing Type</label>
+                        <select id="product_pricing_type" class="form-control">
+                            <option value="FIXED_PRICE">Fixed Price</option>
+                            <option value="PER_ROBUX">Price Per Robux</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label for="product_price">Base Price / Rate</label>
+                        <input type="number" id="product_price" required min="0" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label for="product_active">Status</label>
+                        <select id="product_active" class="form-control">
+                            <option value="true">Active / Enabled</option>
+                            <option value="false">Disabled</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-buttons" style="margin-top: 20px;">
+                    <button type="button" id="btn-cancel-product" class="btn btn-secondary">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Product</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Alert Toast Component -->
+    <div id="toast" class="toast hidden"></div>
+
+    <!-- Vilog Package Modal -->
+    <div id="vilog-modal" class="modal-wrapper hidden">
+        <div class="modal-content glass-panel" style="max-width: 450px;">
+            <div class="modal-header">
+                <h2 id="vilog-modal-title">Add Vilog Package</h2>
+            </div>
+            <form id="vilog-pkg-form">
+                <input type="hidden" id="vilog_pkg_id">
+                
+                <div class="form-group mb-3">
+                    <label for="vilog_type">Package Type</label>
+                    <select id="vilog_type" class="form-control" required>
+                        <option value="vilog">Robux Via Login</option>
+                        <option value="visend">Robux Via Send</option>
+                    </select>
+                </div>
+
+                <div class="form-group mb-3">
+                    <label for="vilog_amount">Robux Amount</label>
+                    <input type="number" id="vilog_amount" required min="1" class="form-control" placeholder="e.g. 500">
+                </div>
+                <div class="form-group">
+                    <label for="vilog_price">Price (IDR)</label>
+                    <input type="number" id="vilog_price" required min="0" class="form-control" placeholder="e.g. 74000">
+                </div>
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label for="vilog_sort_order">Sort Order</label>
+                        <input type="number" id="vilog_sort_order" required class="form-control" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label for="vilog_enabled">Status</label>
+                        <select id="vilog_enabled" class="form-control">
+                            <option value="true">Active</option>
+                            <option value="false">Disabled</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-buttons" style="margin-top: 20px;">
+                    <button type="button" id="btn-cancel-vilog" class="btn btn-secondary">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Package</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

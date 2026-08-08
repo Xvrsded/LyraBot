@@ -1,9 +1,0 @@
-{
-    "id": "owo",
-    "title": "OwO Configuration",
-    "description": "Configure OwO Integration",
-    "icon": "🐶",
-    "permission": "ADMINISTRATOR",
-    "order": 5,
-    "visible": true
-}

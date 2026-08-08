@@ -1,0 +1,279 @@
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const RobuxPackage = require('../models/RobuxPackage');
+const settingsService = require('./settingsService');
+
+let isSeeding = false;
+
+async function seedRobuxPackages() {
+    if (isSeeding) return;
+    isSeeding = true;
+    try {
+        const count = await RobuxPackage.countDocuments();
+        if (count === 0) {
+            const defaultPackages = [
+                // Vilog packages
+                { type: 'vilog', amount: 80, price: 16000, sortOrder: 1 },
+                { type: 'vilog', amount: 160, price: 32000, sortOrder: 2 },
+                { type: 'vilog', amount: 240, price: 48000, sortOrder: 3 },
+                { type: 'vilog', amount: 320, price: 64000, sortOrder: 4 },
+                { type: 'vilog', amount: 500, price: 74000, sortOrder: 5 },
+                { type: 'vilog', amount: 1000, price: 148000, sortOrder: 6 },
+                { type: 'vilog', amount: 1500, price: 222000, sortOrder: 7 },
+                { type: 'vilog', amount: 2000, price: 296000, sortOrder: 8 },
+                { type: 'vilog', amount: 2500, price: 370000, sortOrder: 9 },
+                { type: 'vilog', amount: 3000, price: 444000, sortOrder: 10 },
+                { type: 'vilog', amount: 5000, price: 740000, sortOrder: 11 },
+                { type: 'vilog', amount: 10000, price: 1480000, sortOrder: 12 },
+                
+                // Visend packages
+                { type: 'visend', amount: 50, price: 8500, sortOrder: 1 },
+                { type: 'visend', amount: 100, price: 15000, sortOrder: 2 },
+                { type: 'visend', amount: 200, price: 30000, sortOrder: 3 },
+                { type: 'visend', amount: 300, price: 45000, sortOrder: 4 },
+                { type: 'visend', amount: 400, price: 60000, sortOrder: 5 },
+                { type: 'visend', amount: 500, price: 75000, sortOrder: 6 },
+                { type: 'visend', amount: 600, price: 90000, sortOrder: 7 },
+                { type: 'visend', amount: 700, price: 105000, sortOrder: 8 },
+                { type: 'visend', amount: 800, price: 120000, sortOrder: 9 },
+                { type: 'visend', amount: 900, price: 135000, sortOrder: 10 },
+                { type: 'visend', amount: 1000, price: 150000, sortOrder: 11 }
+            ];
+            await RobuxPackage.insertMany(defaultPackages);
+            console.log('[Robux] Successfully seeded default Vilog & Visend packages in database.');
+        } else {
+            // Check if there are no visend packages due to old DB schema, seed them if needed
+            const visendCount = await RobuxPackage.countDocuments({ type: 'visend' });
+            if (visendCount === 0) {
+                const visendPackages = [
+                    { type: 'visend', amount: 50, price: 8500, sortOrder: 1 },
+                    { type: 'visend', amount: 100, price: 15000, sortOrder: 2 },
+                    { type: 'visend', amount: 200, price: 30000, sortOrder: 3 },
+                    { type: 'visend', amount: 300, price: 45000, sortOrder: 4 },
+                    { type: 'visend', amount: 400, price: 60000, sortOrder: 5 },
+                    { type: 'visend', amount: 500, price: 75000, sortOrder: 6 },
+                    { type: 'visend', amount: 600, price: 90000, sortOrder: 7 },
+                    { type: 'visend', amount: 700, price: 105000, sortOrder: 8 },
+                    { type: 'visend', amount: 800, price: 120000, sortOrder: 9 },
+                    { type: 'visend', amount: 900, price: 135000, sortOrder: 10 },
+                    { type: 'visend', amount: 1000, price: 150000, sortOrder: 11 }
+                ];
+                await RobuxPackage.insertMany(visendPackages);
+                console.log('[Robux] Successfully seeded default Visend packages to existing DB.');
+            }
+        }
+    } catch (err) {
+        console.error('[Robux Seeder] Error seeding packages:', err);
+    } finally {
+        isSeeding = false;
+    }
+}
+
+async function syncVilogPanel(client) {
+    try {
+        const configService = require('./configService');
+        const channelId = await settingsService.get('vilog_channel_id', '1534575980788584468');
+        const channel = await client.channels.fetch(channelId).catch(() => null);
+        if (!channel) {
+            console.warn(`[Robux] Pricelist channel ${channelId} tidak ditemukan.`);
+            return;
+        }
+
+        const packages = await configService.getProductPackages('LOGIN');
+        
+        let priceListText = '```text\n';
+        if (packages.length === 0) {
+            priceListText += 'Belum ada paket Robux yang tersedia.\n';
+        } else {
+            packages.forEach(pkg => {
+                const amountStr = `${pkg.amount.toLocaleString('id-ID')} Robux`;
+                const paddedAmount = amountStr.padEnd(12, ' ');
+                priceListText += `${paddedAmount} = Rp ${pkg.price.toLocaleString('id-ID')}\n`;
+            });
+        }
+        priceListText += '```';
+
+        const brandingName = await settingsService.get('branding_name', 'LyraBlox');
+        const embed = new EmbedBuilder()
+            .setTitle(`🛒 ${brandingName.toUpperCase()} | PRICE LIST`)
+            .setDescription(
+                `\`\`\`\n╔═══════════════════╗\n    ${brandingName.toUpperCase()} STORE    \n     PRICE LIST     \n╚═══════════════════╝\n\`\`\`\n` +
+                `Selamat datang di **${brandingName}**! Silakan lihat daftar paket harga Robux Via Login di bawah ini.`
+            )
+            .setColor('#6366f1')
+            .addFields(
+                { name: '📋 Daftar Paket & Harga (Via Login)', value: priceListText, inline: false },
+                { name: '🛡️ Layanan Jaminan', value: '⚡ **Fast Process**\n🔒 **100% Safe & Trusted**', inline: false }
+            )
+            .setFooter({ text: `Last Update: ${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB` })
+            .setTimestamp();
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('vilog_order_now').setLabel('🛒 Order Sekarang').setStyle(ButtonStyle.Success)
+        );
+
+        const config = await configService.getGlobalConfig();
+        const msgId = config.panelMessageIds?.LOGIN;
+        
+        if (msgId) {
+            const oldMsg = await channel.messages.fetch(msgId).catch(() => null);
+            if (oldMsg) {
+                await oldMsg.edit({ embeds: [embed], components: [row] });
+                console.log(`[Robux] Vilog panel successfully EDITED in channel: #${channel.name}`);
+                return;
+            }
+        }
+
+        // If we reach here, either msgId didn't exist, or message was deleted
+        // Delete any rogue messages from the bot with the button
+        try {
+            const messages = await channel.messages.fetch({ limit: 50 });
+            const oldMessages = messages.filter(m => m.author.id === client.user.id && m.components.some(r => r.components.some(c => c.customId === 'vilog_order_now')));
+            for (const m of oldMessages.values()) await m.delete().catch(() => {});
+        } catch (err) {}
+
+        const newMsg = await channel.send({ embeds: [embed], components: [row] });
+        config.panelMessageIds = config.panelMessageIds || {};
+        config.panelMessageIds.LOGIN = newMsg.id;
+        config.markModified('panelMessageIds');
+        await config.save();
+        
+        console.log(`[Robux] Vilog panel successfully DEPLOYED in channel: #${channel.name}`);
+    } catch (err) {
+        console.error('[Robux Service] Error syncing vilog panel:', err);
+    }
+}
+
+async function syncVisendPanel(client) {
+    try {
+        const configService = require('./configService');
+        const channelId = await settingsService.get('visend_channel_id', '1534576102134255807');
+        const channel = await client.channels.fetch(channelId).catch(() => null);
+        if (!channel) {
+            console.warn(`[Robux] Visend Pricelist channel ${channelId} tidak ditemukan.`);
+            return;
+        }
+
+        const packages = await configService.getProductPackages('SEND');
+        
+        let priceListText = '```text\n';
+        if (packages.length === 0) {
+            priceListText += 'Belum ada paket Robux yang tersedia.\n';
+        } else {
+            packages.forEach(pkg => {
+                const amountStr = `${pkg.amount.toLocaleString('id-ID')} Robux`;
+                const paddedAmount = amountStr.padEnd(12, ' ');
+                priceListText += `${paddedAmount} = Rp ${pkg.price.toLocaleString('id-ID')}\n`;
+            });
+        }
+        priceListText += '```';
+
+        const brandingName = await settingsService.get('branding_name', 'LyraBlox');
+        const embed = new EmbedBuilder()
+            .setTitle(`🛒 ${brandingName.toUpperCase()} | PRICE LIST VIA SEND`)
+            .setDescription(
+                `\`\`\`\n╔═══════════════════╗\n    ${brandingName.toUpperCase()} STORE    \n     PRICE LIST     \n╚═══════════════════╝\n\`\`\`\n` +
+                `Selamat datang di **${brandingName}**! Silakan lihat daftar harga Robux Via Send di bawah ini.`
+            )
+            .setColor('#f59e0b')
+            .addFields(
+                { name: '📋 Daftar Paket & Harga (Via Send)', value: priceListText, inline: false },
+                { name: '🛡️ Informasi & Persyaratan', value: '⚡ **Fast Process** | 🔒 **100% Safe & Trusted**\n\n📌 Pastikan akun Roblox kamu sudah berusia 18+, agar tidak terkendala verifikasi orang tua saat menerima Robux.\n📌 WAJIB aktifkan V2L agar dapet menerima lebih dari 500 robux\n‼️ Mohon pastikan limit akun masih tersedia sebelum order, supaya proses kirim Robux bisa langsung berjalan lancar tanpa kendala.', inline: false }
+            )
+            .setFooter({ text: `Last Update: ${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB` })
+            .setTimestamp();
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('visend_order_now').setLabel('🛒 Order Via Send').setStyle(ButtonStyle.Success)
+        );
+
+        const config = await configService.getGlobalConfig();
+        const msgId = config.panelMessageIds?.SEND;
+        
+        if (msgId) {
+            const oldMsg = await channel.messages.fetch(msgId).catch(() => null);
+            if (oldMsg) {
+                await oldMsg.edit({ embeds: [embed], components: [row] });
+                console.log(`[Robux] Visend panel successfully EDITED in channel: #${channel.name}`);
+                return;
+            }
+        }
+
+        try {
+            const messages = await channel.messages.fetch({ limit: 50 });
+            const oldMessages = messages.filter(m => m.author.id === client.user.id && m.components.some(r => r.components.some(c => c.customId === 'visend_order_now')));
+            for (const m of oldMessages.values()) await m.delete().catch(() => {});
+        } catch (err) {}
+
+        const newMsg = await channel.send({ embeds: [embed], components: [row] });
+        config.panelMessageIds = config.panelMessageIds || {};
+        config.panelMessageIds.SEND = newMsg.id;
+        config.markModified('panelMessageIds');
+        await config.save();
+        
+        console.log(`[Robux] Visend panel successfully DEPLOYED in channel: #${channel.name}`);
+    } catch (err) {
+        console.error('[Robux Service] Error syncing visend panel:', err);
+    }
+}
+
+async function syncGigPanel(client) {
+    try {
+        const channelId = await settingsService.get('gig_channel_id', '1534575839931273346');
+        const channel = await client.channels.fetch(channelId).catch(() => null);
+        if (!channel) {
+            console.warn(`[Robux] GIG Pricelist channel ${channelId} tidak ditemukan.`);
+            return;
+        }
+
+        const configService = require('./configService');
+        const config = await configService.getGlobalConfig();
+        const rate = config.gigRate || 90;
+        const brandingName = await settingsService.get('branding_name', 'LyraBlox');
+        
+        // Contoh perhitungan (misal: 55 Robux)
+        let samplePrice = 55 * rate;
+        let roundedSample = Math.ceil(samplePrice / 500) * 500;
+        
+        const embed = new EmbedBuilder()
+            .setTitle(`🎮 ${brandingName.toUpperCase()} | GIFT IN GAME`)
+            .setDescription(
+                `Selamat datang di ${brandingName} Gift In Game.\nKami membantu proses pembelian Gamepass Roblox pada berbagai game favorit Anda.\nSilakan isi detail Gamepass yang ingin dibeli.\nHarga akan dihitung otomatis berdasarkan jumlah Robux Gamepass.\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+                `📝 **Persyaratan**\n` +
+                `• Pastikan link game Roblox yang diberikan sudah benar.\n` +
+                `• Pastikan nama Gamepass yang ingin dibeli sesuai.\n` +
+                `• Pastikan Gamepass dapat dibeli oleh pengguna lain.\n` +
+                `• Harga akan mengikuti jumlah Robux pada Gamepass.\n` +
+                `• Pastikan informasi yang diberikan sudah benar sebelum melakukan pembayaran.\n` +
+                `• Kesalahan informasi dari customer bukan menjadi tanggung jawab ${brandingName}.\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+                `💰 **Sistem Harga**\n` +
+                `Perhitungan menggunakan rate:\n\`\`\`text\n1 Robux = Rp${rate}\n\`\`\`\n` +
+                `*Catatan: Total pembayaran akan dibulatkan ke atas untuk kelipatan Rp500 terdekat.*\n\n` +
+                `Contoh Pembelian 55 Robux (Rate ${rate}):\n\`\`\`text\n55 Robux × Rp${rate} = Rp${samplePrice.toLocaleString('id-ID')}\n=> Dibulatkan menjadi Rp${roundedSample.toLocaleString('id-ID')}\n\`\`\``
+            )
+            .setColor('#f43f5e')
+            .setFooter({ text: `LyraBlox • Last Update: ${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB` })
+            .setTimestamp();
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('gig_order_now').setLabel('🛒 Order Sekarang').setStyle(ButtonStyle.Success)
+        );
+
+        try {
+            const messages = await channel.messages.fetch({ limit: 50 });
+            const oldMessages = messages.filter(m => m.author.id === client.user.id && m.components.some(r => r.components.some(c => c.customId === 'gig_order_now')));
+            for (const m of oldMessages.values()) await m.delete().catch(() => {});
+        } catch (err) {}
+
+        await channel.send({ embeds: [embed], components: [row] });
+        console.log(`[Robux] GIG panel list successfully updated in channel: #${channel.name}`);
+    } catch (err) {
+        console.error('[Robux Service] Error syncing GIG panel:', err);
+    }
+}
+
+module.exports = {
+    seedRobuxPackages,
+    syncVilogPanel,
+    syncVisendPanel,
+    syncGigPanel
+};
