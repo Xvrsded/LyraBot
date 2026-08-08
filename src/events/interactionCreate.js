@@ -108,7 +108,8 @@ async function createTicketFromSession(interaction, session, client) {
                 gamepassName: session.gamepassName,
                 amount: session.amount,
                 price: session.price,
-                rate: session.rate
+                rate: session.rate,
+                robloxUsername: session.robloxUsername
             } : (isCopay ? {
                 username: session.robloxUsername,
                 amount: session.amount,
@@ -175,7 +176,7 @@ async function createTicketFromSession(interaction, session, client) {
                     { name: '🎁 Gamepass', value: `\`\`\`text\n${session.gamepassName || '-'}\n\`\`\``, inline: true },
                     { name: '💎 Harga Gamepass', value: `\`${session.amount.toLocaleString('id-ID')} Robux\``, inline: true },
                     { name: '💰 Total Pembayaran', value: `\`Rp ${session.price.toLocaleString('id-ID')}\``, inline: true },
-                    { name: '👤 Username', value: `\`\`\`text\n${session.robloxUsername}\n\`\`\``, inline: true },
+                    { name: '👤 Username', value: `\`${session.robloxUsername}\``, inline: true },
                     { name: '📌 Status', value: '🟡 Pending', inline: true },
                     { name: '━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
                     { name: '💳 Pembayaran', value: `Silakan lakukan pembayaran sesuai dengan total yang tertera di atas.\n\n🟦 **GoPay**\n\`081393625527\``, inline: false },
@@ -237,8 +238,8 @@ async function createTicketFromSession(interaction, session, client) {
                 .setColor('#a855f7')
                 .addFields(
                     { name: '📦 Produk', value: 'Limited Item', inline: true },
-                    { name: '👤 Username Roblox', value: `\`\`\`text\n${session.robloxUsername}\n\`\`\``, inline: true },
-                    { name: '💎 Nama Item', value: `\`\`\`text\n${session.item}\n\`\`\``, inline: true },
+                    { name: '👤 Username Roblox', value: `\`${session.robloxUsername}\``, inline: true },
+                    { name: '💎 Nama Item', value: `\`${session.item}\``, inline: true },
                     { name: '💰 Harga', value: `\`Rp ${session.price.toLocaleString('id-ID')}\``, inline: true },
                     { name: '📌 Status', value: '🟡 Pending Payment', inline: true },
                     { name: '📝 Catatan', value: `\`${session.notes || '-'}\``, inline: false },
@@ -268,7 +269,7 @@ async function createTicketFromSession(interaction, session, client) {
                     { name: '🎁 Paket', value: session.isCustom ? 'Custom' : `${session.amount.toLocaleString('id-ID')} Robux`, inline: true },
                     { name: '💎 Jumlah Robux', value: `${session.amount.toLocaleString('id-ID')} Robux`, inline: true },
                     { name: '💰 Total', value: `Rp ${session.price.toLocaleString('id-ID')}`, inline: true },
-                    { name: '👤 Username', value: `\`\`\`text\n${session.robloxUsername}\n\`\`\``, inline: true },
+                    { name: '👤 Username', value: `\`${session.robloxUsername}\``, inline: true },
                     { name: '📌 Status', value: '🟡 Pending', inline: true },
                     ...(isVisend ? [] : [{ name: '🔑 Password', value: `||${session.robloxPassword}||`, inline: true }]),
                     { name: '━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
