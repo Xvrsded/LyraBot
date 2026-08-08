@@ -1,9 +1,9 @@
 <div align="center">
-  <img src="WinterStore.gif" alt="WinterBot Banner" width="600" />
+  <img src="Public/QR Payment.jpg" alt="LyraBlox Banner" width="600" />
 
-  # ❄️ WinterBot
+  # 🌟 LyraBot
 
-  **Bot Discord Multi-Fungsi untuk Komunitas Roblox & Manajemen Toko Digital**
+  **Bot Discord Multi-Fungsi untuk Komunitas Roblox & Manajemen Toko Digital LyraBlox**
 
   [![Node.js](https://img.shields.io/badge/Node.js-v16.14.0+-green.svg)](https://nodejs.org/)
   [![Discord.js](https://img.shields.io/badge/Discord.js-v14-blue.svg)](https://discord.js.org/)
@@ -12,9 +12,9 @@
 
 <br />
 
-## 📖 Tentang WinterBot
+## 📖 Tentang LyraBot
 
-WinterBot adalah bot Discord canggih yang dirancang khusus untuk mempermudah pengelolaan komunitas berbasis Roblox serta mengotomatisasi sistem toko digital langsung di dalam server Discord Anda. Dilengkapi dengan antarmuka yang ramah pengguna (Slash Commands & Buttons) dan integrasi database yang kuat.
+LyraBot adalah bot Discord canggih yang dirancang khusus untuk mempermudah pengelolaan komunitas berbasis Roblox serta mengotomatisasi sistem toko digital langsung di dalam server Discord Anda. Dilengkapi dengan antarmuka yang ramah pengguna (Slash Commands & Buttons) dan integrasi database yang kuat.
 
 ---
 
@@ -43,7 +43,7 @@ WinterBot adalah bot Discord canggih yang dirancang khusus untuk mempermudah pen
 
 ## 🚀 Panduan Instalasi
 
-Ikuti langkah-langkah di bawah ini untuk menjalankan WinterBot di server Anda sendiri.
+Ikuti langkah-langkah di bawah ini untuk menjalankan LyraBot di server Anda sendiri.
 
 ### 📋 Persyaratan Sistem
 - [Node.js](https://nodejs.org/) v16.14.0 atau yang lebih baru.
@@ -54,8 +54,8 @@ Ikuti langkah-langkah di bawah ini untuk menjalankan WinterBot di server Anda se
 
 1. **Clone Repository**
    ```bash
-   git clone https://github.com/Xvrsded/BotDiscord.git
-   cd BotDiscord
+   git clone https://github.com/Xvrsded/LyraBot.git
+   cd LyraBot
    ```
 
 2. **Instalasi Dependencies**
