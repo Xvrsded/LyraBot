@@ -8,9 +8,9 @@ const QUEUE_CATEGORY_ID = '1456813672000262144';
 
 // Target Names Generators
 const getChannelNames = async () => {
-    // 1. Antrian
-    const activeCount = await Order.countDocuments({
-        status: { $in: ['pending', 'paid', 'processing'] }
+    const Ticket = require('../models/Ticket');
+    const activeCount = await Ticket.countDocuments({
+        status: { $ne: 'closed' }
     });
     
     // 2. Fetch everything from central ConfigService
