@@ -7,6 +7,7 @@ const { startEligibilityChecker } = require('./scripts/check_eligibility');
 const { startLivePayoutList } = require('./scripts/update_payout_list');
 const { startLiveLeaderboard } = require('./scripts/update_leaderboard');
 const { startServerStatsTracker } = require('./scripts/update_server_stats');
+const logger = require('./utils/logger');
 
 console.log('[BOOT] Starting LyraBot...');
 console.log('[BOOT] Loading configuration...');
