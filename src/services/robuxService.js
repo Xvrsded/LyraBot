@@ -78,7 +78,7 @@ async function syncVilogPanel(client) {
             return;
         }
 
-        const packages = await configService.getProductPackages('LOGIN');
+        const packages = await configService.getProductPackages('vilog');
         
         let priceListText = '```text\n';
         if (packages.length === 0) {
@@ -153,7 +153,7 @@ async function syncVisendPanel(client) {
             return;
         }
 
-        const packages = await configService.getProductPackages('SEND');
+        const packages = await configService.getProductPackages('visend');
         
         let priceListText = '```text\n';
         if (packages.length === 0) {

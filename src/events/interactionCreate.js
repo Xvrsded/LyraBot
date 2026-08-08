@@ -1019,7 +1019,7 @@ module.exports = {
                 }
 
                 const configService = require('../services/configService');
-                const packages = await configService.getProductPackages('COPAY');
+                const packages = await configService.getProductPackages('copay');
                 if (packages.length === 0) {
                     return interaction.reply({ content: '❌ Paket Robux (Copay) saat ini sedang kosong.', ephemeral: true });
                 }
@@ -1070,7 +1070,7 @@ module.exports = {
                 if (check !== 'proceed') return;
                 try {
                     const configService = require('../services/configService');
-                    const packages = await configService.getProductPackages('LOGIN');
+                    const packages = await configService.getProductPackages('vilog');
                     if (packages.length === 0) {
                         return interaction.editReply({ content: '❌ Saat ini belum ada paket Robux Vilog yang aktif di database.' });
                     }
@@ -1103,7 +1103,7 @@ module.exports = {
                 if (check !== 'proceed') return;
                 try {
                     const configService = require('../services/configService');
-                    const packages = await configService.getProductPackages('SEND');
+                    const packages = await configService.getProductPackages('visend');
                     if (packages.length === 0) {
                         return interaction.editReply({ content: '❌ Saat ini belum ada paket Robux Visend yang aktif di database.' });
                     }
@@ -1253,7 +1253,7 @@ module.exports = {
                 }
                 try {
                     const configService = require('../services/configService');
-                    const packages = await configService.getProductPackages('LOGIN');
+                    const packages = await configService.getProductPackages('vilog');
                     if (packages.length === 0) {
                         return interaction.editReply({ content: '❌ Saat ini belum ada paket Robux Vilog yang aktif di database.', embeds: [], components: [] });
                     }
@@ -1286,7 +1286,7 @@ module.exports = {
                 }
                 try {
                     const configService = require('../services/configService');
-                    const packages = await configService.getProductPackages('SEND');
+                    const packages = await configService.getProductPackages('visend');
                     if (packages.length === 0) {
                         return interaction.editReply({ content: '❌ Saat ini belum ada paket Robux Visend yang aktif di database.', embeds: [], components: [] });
                     }
