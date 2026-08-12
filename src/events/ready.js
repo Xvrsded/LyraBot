@@ -127,10 +127,12 @@ module.exports = {
         // See src/archive for disabled code.
 
         setTimeout(() => {
-            const { syncVilogPanel, syncVisendPanel, syncGigPanel } = require('../services/robuxService');
-            syncVilogPanel(client);
-            syncVisendPanel(client);
-            syncGigPanel(client);
+            const { seedRobuxPackages, syncVilogPanel, syncVisendPanel, syncGigPanel } = require('../services/robuxService');
+            seedRobuxPackages()
+                .then(() => syncVilogPanel(client))
+                .then(() => syncVisendPanel(client))
+                .then(() => syncGigPanel(client))
+                .catch(err => console.error('[READY] Error syncing Robux catalogs:', err));
             
             const copayService = require('../services/copayService');
             copayService.syncCopayPanel(client);

@@ -4,28 +4,50 @@ const settingsService = require('./settingsService');
 
 let isSeeding = false;
 
+const VILOG_PRICE_CATALOG = [
+    { amount: 100, price: 16000, sortOrder: 1 },
+    { amount: 200, price: 32000, sortOrder: 2 },
+    { amount: 300, price: 48000, sortOrder: 3 },
+    { amount: 400, price: 64000, sortOrder: 4 },
+    { amount: 500, price: 80000, sortOrder: 5 },
+    { amount: 600, price: 96000, sortOrder: 6 },
+    { amount: 700, price: 112000, sortOrder: 7 },
+    { amount: 800, price: 128000, sortOrder: 8 },
+    { amount: 900, price: 144000, sortOrder: 9 },
+    { amount: 1000, price: 160000, sortOrder: 10 }
+];
+
+async function syncVilogPriceCatalog() {
+    const targetAmounts = VILOG_PRICE_CATALOG.map(pkg => pkg.amount);
+
+    await Promise.all(VILOG_PRICE_CATALOG.map(pkg => RobuxPackage.findOneAndUpdate(
+        { type: 'vilog', amount: pkg.amount },
+        {
+            type: 'vilog',
+            amount: pkg.amount,
+            price: pkg.price,
+            sortOrder: pkg.sortOrder,
+            displayOrder: pkg.sortOrder,
+            isActive: true
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+    )));
+
+    await RobuxPackage.updateMany(
+        { type: 'vilog', amount: { $nin: targetAmounts } },
+        { isActive: false }
+    );
+}
+
 async function seedRobuxPackages() {
     if (isSeeding) return;
     isSeeding = true;
     try {
-        const count = await RobuxPackage.countDocuments();
-        if (count === 0) {
-            const defaultPackages = [
-                // Vilog packages
-                { type: 'vilog', amount: 80, price: 16000, sortOrder: 1 },
-                { type: 'vilog', amount: 160, price: 32000, sortOrder: 2 },
-                { type: 'vilog', amount: 240, price: 48000, sortOrder: 3 },
-                { type: 'vilog', amount: 320, price: 64000, sortOrder: 4 },
-                { type: 'vilog', amount: 500, price: 74000, sortOrder: 5 },
-                { type: 'vilog', amount: 1000, price: 148000, sortOrder: 6 },
-                { type: 'vilog', amount: 1500, price: 222000, sortOrder: 7 },
-                { type: 'vilog', amount: 2000, price: 296000, sortOrder: 8 },
-                { type: 'vilog', amount: 2500, price: 370000, sortOrder: 9 },
-                { type: 'vilog', amount: 3000, price: 444000, sortOrder: 10 },
-                { type: 'vilog', amount: 5000, price: 740000, sortOrder: 11 },
-                { type: 'vilog', amount: 10000, price: 1480000, sortOrder: 12 },
-                
-                // Visend packages
+        await syncVilogPriceCatalog();
+
+        const visendCount = await RobuxPackage.countDocuments({ type: 'visend' });
+        if (visendCount === 0) {
+            const visendPackages = [
                 { type: 'visend', amount: 50, price: 8500, sortOrder: 1 },
                 { type: 'visend', amount: 100, price: 15000, sortOrder: 2 },
                 { type: 'visend', amount: 200, price: 30000, sortOrder: 3 },
@@ -38,28 +60,8 @@ async function seedRobuxPackages() {
                 { type: 'visend', amount: 900, price: 135000, sortOrder: 10 },
                 { type: 'visend', amount: 1000, price: 150000, sortOrder: 11 }
             ];
-            await RobuxPackage.insertMany(defaultPackages);
-            console.log('[Robux] Successfully seeded default Vilog & Visend packages in database.');
-        } else {
-            // Check if there are no visend packages due to old DB schema, seed them if needed
-            const visendCount = await RobuxPackage.countDocuments({ type: 'visend' });
-            if (visendCount === 0) {
-                const visendPackages = [
-                    { type: 'visend', amount: 50, price: 8500, sortOrder: 1 },
-                    { type: 'visend', amount: 100, price: 15000, sortOrder: 2 },
-                    { type: 'visend', amount: 200, price: 30000, sortOrder: 3 },
-                    { type: 'visend', amount: 300, price: 45000, sortOrder: 4 },
-                    { type: 'visend', amount: 400, price: 60000, sortOrder: 5 },
-                    { type: 'visend', amount: 500, price: 75000, sortOrder: 6 },
-                    { type: 'visend', amount: 600, price: 90000, sortOrder: 7 },
-                    { type: 'visend', amount: 700, price: 105000, sortOrder: 8 },
-                    { type: 'visend', amount: 800, price: 120000, sortOrder: 9 },
-                    { type: 'visend', amount: 900, price: 135000, sortOrder: 10 },
-                    { type: 'visend', amount: 1000, price: 150000, sortOrder: 11 }
-                ];
-                await RobuxPackage.insertMany(visendPackages);
-                console.log('[Robux] Successfully seeded default Visend packages to existing DB.');
-            }
+            await RobuxPackage.insertMany(visendPackages);
+            console.log('[Robux] Successfully seeded default Visend packages to existing DB.');
         }
     } catch (err) {
         console.error('[Robux Seeder] Error seeding packages:', err);
@@ -143,6 +145,21 @@ async function syncVilogPanel(client) {
     }
 }
 
+async function refreshProductPanel(client, type) {
+    const normalizedType = String(type || '').trim().toLowerCase();
+    if (normalizedType === 'visend' || normalizedType === 'send') {
+        await syncVisendPanel(client);
+        return;
+    }
+    if (normalizedType === 'vilog' || normalizedType === 'login') {
+        await syncVilogPanel(client);
+        return;
+    }
+    if (normalizedType === 'gig') {
+        await syncGigPanel(client);
+    }
+}
+
 async function syncVisendPanel(client) {
     try {
         const configService = require('./configService');
@@ -153,16 +170,18 @@ async function syncVisendPanel(client) {
             return;
         }
 
-        const packages = await configService.getProductPackages('visend');
+        const packages = [...await configService.getProductPackages('visend', true)]
+            .filter(pkg => pkg && pkg.isActive !== false)
+            .sort((a, b) => Number(a.amount) - Number(b.amount));
         
         let priceListText = '```text\n';
         if (packages.length === 0) {
             priceListText += 'Belum ada paket Robux yang tersedia.\n';
         } else {
             packages.forEach(pkg => {
-                const amountStr = `${pkg.amount.toLocaleString('id-ID')} Robux`;
-                const paddedAmount = amountStr.padEnd(12, ' ');
-                priceListText += `${paddedAmount} = Rp ${pkg.price.toLocaleString('id-ID')}\n`;
+                const amount = Number(pkg.amount || 0);
+                const price = Number(pkg.price || 0);
+                priceListText += `${amount.toLocaleString('id-ID')}⏣ = ${price.toLocaleString('id-ID')}\n`;
             });
         }
         priceListText += '```';
@@ -272,8 +291,7 @@ async function syncGigPanel(client) {
 }
 
 module.exports = {
-    seedRobuxPackages,
-    syncVilogPanel,
+    seedRobuxPackages,    refreshProductPanel,    syncVilogPanel,
     syncVisendPanel,
     syncGigPanel
 };

@@ -469,35 +469,8 @@ module.exports = {
             if (customId === 'visend_select_package') {
                 const selectedValue = interaction.values[0];
 
-                if (selectedValue === 'divider:0') {
+                if (selectedValue === 'divider:0' || selectedValue === 'custom:0') {
                     return interaction.reply({ content: '❌ Pilihan tidak valid.', ephemeral: true });
-                }
-                
-                if (selectedValue === 'custom:0') {
-                    const modal = new ModalBuilder()
-                        .setCustomId(`visend_modal_custom`)
-                        .setTitle(`Custom Robux Visend`);
-
-                    const amountInput = new TextInputBuilder()
-                        .setCustomId('robux_amount')
-                        .setLabel('Jumlah Robux')
-                        .setPlaceholder('Contoh: 1250')
-                        .setStyle(TextInputStyle.Short)
-                        .setRequired(true);
-
-                    const usernameInput = new TextInputBuilder()
-                        .setCustomId('roblox_username')
-                        .setLabel('Username Roblox')
-                        .setPlaceholder('Masukkan Username Roblox')
-                        .setStyle(TextInputStyle.Short)
-                        .setRequired(true);
-
-                    modal.addComponents(
-                        new ActionRowBuilder().addComponents(amountInput),
-                        new ActionRowBuilder().addComponents(usernameInput)
-                    );
-
-                    return await interaction.showModal(modal);
                 }
 
                 const [amount, price] = selectedValue.split(':');
@@ -1112,26 +1085,18 @@ module.exports = {
                         .setCustomId('visend_select_package')
                         .setPlaceholder('Pilih Paket Robux');
 
-                    select.addOptions(
-                        new StringSelectMenuOptionBuilder()
-                            .setLabel('✨ Custom Robux')
-                            .setDescription('Tentukan jumlah Robux yang Anda inginkan')
-                            .setValue('custom:0'),
-                        new StringSelectMenuOptionBuilder()
-                            .setLabel('━━━━━━━━━━━━━━')
-                            .setDescription('Daftar Paket Reguler')
-                            .setValue('divider:0')
-                    );
-
-                    packages.forEach(pkg => {
-                        const label = pkg.label || `${pkg.amount.toLocaleString('id-ID')} Robux`;
-                        select.addOptions(
-                            new StringSelectMenuOptionBuilder()
-                                .setLabel(label)
-                                .setDescription(`Harga: Rp ${pkg.price.toLocaleString('id-ID')}`)
-                                .setValue(`${pkg.amount}:${pkg.price}`)
-                        );
-                    });
+                    packages
+                        .slice()
+                        .sort((a, b) => Number(a.amount) - Number(b.amount))
+                        .forEach(pkg => {
+                            const label = pkg.label || `${pkg.amount.toLocaleString('id-ID')} Robux`;
+                            select.addOptions(
+                                new StringSelectMenuOptionBuilder()
+                                    .setLabel(label)
+                                    .setDescription(`Harga: Rp ${pkg.price.toLocaleString('id-ID')}`)
+                                    .setValue(`${pkg.amount}:${pkg.price}`)
+                            );
+                        });
 
                     const row = new ActionRowBuilder().addComponents(select);
                     return await interaction.editReply({ content: 'Silakan pilih paket Robux yang ingin Anda beli:', components: [row] });
@@ -1295,25 +1260,18 @@ module.exports = {
                         .setCustomId('visend_select_package')
                         .setPlaceholder('Pilih Paket Robux');
 
-                    select.addOptions(
-                        new StringSelectMenuOptionBuilder()
-                            .setLabel('✨ Custom Robux')
-                            .setDescription('Tentukan jumlah Robux yang Anda inginkan')
-                            .setValue('custom:0'),
-                        new StringSelectMenuOptionBuilder()
-                            .setLabel('━━━━━━━━━━━━━━')
-                            .setDescription('Daftar Paket Reguler')
-                            .setValue('divider:0')
-                    );
-
-                    packages.forEach(pkg => {
-                        select.addOptions(
-                            new StringSelectMenuOptionBuilder()
-                                .setLabel(`${pkg.amount.toLocaleString('id-ID')} Robux`)
-                                .setDescription(`Harga: Rp ${pkg.price.toLocaleString('id-ID')}`)
-                                .setValue(`${pkg.amount}:${pkg.price}`)
-                        );
-                    });
+                    packages
+                        .slice()
+                        .sort((a, b) => Number(a.amount) - Number(b.amount))
+                        .forEach(pkg => {
+                            const label = pkg.label || `${pkg.amount.toLocaleString('id-ID')} Robux`;
+                            select.addOptions(
+                                new StringSelectMenuOptionBuilder()
+                                    .setLabel(label)
+                                    .setDescription(`Harga: Rp ${pkg.price.toLocaleString('id-ID')}`)
+                                    .setValue(`${pkg.amount}:${pkg.price}`)
+                            );
+                        });
 
                     const row = new ActionRowBuilder().addComponents(select);
                     return await interaction.editReply({ content: 'Silakan pilih paket Robux yang ingin Anda beli:', components: [row] });
@@ -3390,20 +3348,22 @@ module.exports = {
                 const RobuxPackage = require('../models/RobuxPackage');
 
                 try {
-                    // Soft delete all existing packages for this type
-                    await RobuxPackage.updateMany({ type: productType }, { isActive: false });
+                    const normalizedType = configService.normalizeProductType ? configService.normalizeProductType(productType) : productType.toLowerCase();
+
+                    await RobuxPackage.updateMany({ type: normalizedType }, { isActive: false });
                     
-                    // Insert new packages
                     for (const pkgData of newPackages) {
-                        await configService.createProductPackage(productType, pkgData, interaction.user.username, interaction.user.id);
+                        await configService.createProductPackage(normalizedType, pkgData, interaction.user.username, interaction.user.id);
                     }
 
-                    // Refresh Product Panel (Requires robuxService to use configService)
                     const robuxService = require('../services/robuxService');
-                    if (productType === 'LOGIN') await robuxService.syncVilogPanel(interaction.client);
-                    if (productType === 'SEND') await robuxService.syncVisendPanel(interaction.client);
+                    if (robuxService.refreshProductPanel) {
+                        await robuxService.refreshProductPanel(interaction.client, normalizedType);
+                    } else {
+                        if (normalizedType === 'vilog') await robuxService.syncVilogPanel(interaction.client);
+                        if (normalizedType === 'visend') await robuxService.syncVisendPanel(interaction.client);
+                    }
                     
-                    // Respond to interaction since it's a modal submission on an ephemeral message
                     await interaction.editReply({ content: `✅ Pricelist untuk ${productType} berhasil diperbarui!` });
                 } catch (err) {
                     logger.error(`[Dashboard] Error updating product packages for ${productType}:`, err);

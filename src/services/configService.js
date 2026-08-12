@@ -12,6 +12,23 @@ const dashboardCache = {
     packages: {}
 };
 
+function normalizeProductType(type) {
+    if (!type) return type;
+    const normalized = String(type).trim().toLowerCase();
+    const typeMap = {
+        login: 'vilog',
+        vilog: 'vilog',
+        robux_login: 'vilog',
+        send: 'visend',
+        visend: 'visend',
+        robux_send: 'visend',
+        gig: 'gig',
+        copay: 'copay',
+        custom: 'custom'
+    };
+    return typeMap[normalized] || normalized;
+}
+
 class ConfigService {
     /**
      * Initialize/create a configuration document for a guild.
@@ -155,6 +172,31 @@ class ConfigService {
         return cacheProvider;
     }
 
+    normalizeProductType(type) {
+        return normalizeProductType(type);
+    }
+
+    invalidatePackageCache(type) {
+        const normalizedType = this.normalizeProductType(type);
+        const keysToDelete = new Set([
+            normalizedType,
+            String(type || '').trim().toLowerCase(),
+            String(type || '').trim().toUpperCase()
+        ]);
+
+        if (normalizedType === 'visend') {
+            keysToDelete.add('custom');
+            keysToDelete.add('SEND');
+        }
+        if (normalizedType === 'custom') {
+            keysToDelete.add('visend');
+        }
+
+        for (const key of keysToDelete) {
+            if (key) delete dashboardCache.packages[key];
+        }
+    }
+
     // ==========================================
     // DASHBOARD: READERS (Cache-Ready)
     // ==========================================
@@ -172,12 +214,25 @@ class ConfigService {
     }
 
     async getProductPackages(type, forceRefresh = false) {
-        if (!forceRefresh && dashboardCache.packages[type]) {
-            return dashboardCache.packages[type];
+        const normalizedType = this.normalizeProductType(type);
+        const cacheKey = normalizedType || String(type || '').trim();
+
+        if (!forceRefresh && dashboardCache.packages[cacheKey]) {
+            return dashboardCache.packages[cacheKey];
         }
-        const typesToFetch = type === 'visend' ? ['visend', 'custom'] : [type];
-        const packages = await RobuxPackage.find({ type: { $in: typesToFetch }, isActive: true }).sort({ displayOrder: 1, amount: 1 });
-        dashboardCache.packages[type] = packages;
+
+        let typesToFetch = [normalizedType].filter(Boolean);
+        if (normalizedType === 'visend') {
+            typesToFetch = ['visend', 'custom'];
+        }
+        if (normalizedType === 'custom') {
+            typesToFetch = ['custom'];
+        }
+
+        const packages = await RobuxPackage.find({ type: { $in: typesToFetch }, isActive: true })
+            .sort({ amount: 1, displayOrder: 1 });
+
+        dashboardCache.packages[cacheKey] = packages;
         return packages;
     }
 
@@ -253,11 +308,14 @@ class ConfigService {
 
         const oldData = { price: pkg.price, amount: pkg.amount, isActive: pkg.isActive, displayOrder: pkg.displayOrder };
         
+        if (updateData.type) {
+            updateData.type = this.normalizeProductType(updateData.type);
+        }
+
         Object.assign(pkg, updateData);
         await pkg.save();
 
-        // Invalidate cache
-        delete dashboardCache.packages[pkg.type];
+        this.invalidatePackageCache(pkg.type);
         
         await auditService.info('Dashboard', 'PACKAGE_UPDATE', {
             userId: userId,
@@ -274,12 +332,15 @@ class ConfigService {
     }
 
     async createProductPackage(type, data, author = 'System', userId = null) {
+        const normalizedType = this.normalizeProductType(type);
+        const normalizedData = { ...data, type: normalizedType, isActive: true };
+
         const pkg = await RobuxPackage.findOneAndUpdate(
-            { type, amount: data.amount },
-            { ...data, type, isActive: true },
+            { type: normalizedType, amount: data.amount },
+            normalizedData,
             { upsert: true, new: true, setDefaultsOnInsert: true }
         );
-        delete dashboardCache.packages[type];
+        this.invalidatePackageCache(normalizedType);
         
         await auditService.info('Dashboard', 'PACKAGE_CREATE', {
             userId: userId,

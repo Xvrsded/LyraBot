@@ -25,7 +25,6 @@ class Renderer {
 
         try {
             // Check permissions here if needed
-            // TODO: integrate with identity/permission system
             
             const payload = await page.render(session.data, interaction);
             await this.replyOrEdit(interaction, payload, isNewSession);
