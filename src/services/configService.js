@@ -235,8 +235,17 @@ class ConfigService {
         const packages = await RobuxPackage.find({ type: { $in: typesToFetch }, isActive: true })
             .sort({ amount: 1, displayOrder: 1 });
 
-        dashboardCache.packages[cacheKey] = packages;
-        return packages;
+        const uniquePackages = [];
+        const seenAmounts = new Set();
+        for (const pkg of packages) {
+            const amountKey = Number(pkg.amount);
+            if (seenAmounts.has(amountKey)) continue;
+            seenAmounts.add(amountKey);
+            uniquePackages.push(pkg);
+        }
+
+        dashboardCache.packages[cacheKey] = uniquePackages;
+        return uniquePackages;
     }
 
     async getMMFees(forceRefresh = false) {

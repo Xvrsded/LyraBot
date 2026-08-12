@@ -1085,16 +1085,20 @@ module.exports = {
                         .setCustomId('visend_select_package')
                         .setPlaceholder('Pilih Paket Robux');
 
+                    const seenValues = new Set();
                     packages
                         .slice()
                         .sort((a, b) => Number(a.amount) - Number(b.amount))
                         .forEach(pkg => {
                             const label = pkg.label || `${pkg.amount.toLocaleString('id-ID')} Robux`;
+                            const value = `${pkg.amount}:${pkg.price}`;
+                            if (seenValues.has(value)) return;
+                            seenValues.add(value);
                             select.addOptions(
                                 new StringSelectMenuOptionBuilder()
                                     .setLabel(label)
                                     .setDescription(`Harga: Rp ${pkg.price.toLocaleString('id-ID')}`)
-                                    .setValue(`${pkg.amount}:${pkg.price}`)
+                                    .setValue(value)
                             );
                         });
 
@@ -1260,16 +1264,20 @@ module.exports = {
                         .setCustomId('visend_select_package')
                         .setPlaceholder('Pilih Paket Robux');
 
+                    const seenValues = new Set();
                     packages
                         .slice()
                         .sort((a, b) => Number(a.amount) - Number(b.amount))
                         .forEach(pkg => {
                             const label = pkg.label || `${pkg.amount.toLocaleString('id-ID')} Robux`;
+                            const value = `${pkg.amount}:${pkg.price}`;
+                            if (seenValues.has(value)) return;
+                            seenValues.add(value);
                             select.addOptions(
                                 new StringSelectMenuOptionBuilder()
                                     .setLabel(label)
                                     .setDescription(`Harga: Rp ${pkg.price.toLocaleString('id-ID')}`)
-                                    .setValue(`${pkg.amount}:${pkg.price}`)
+                                    .setValue(value)
                             );
                         });
 
