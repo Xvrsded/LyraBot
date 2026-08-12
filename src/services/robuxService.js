@@ -20,6 +20,11 @@ const VILOG_PRICE_CATALOG = [
 async function syncVilogPriceCatalog() {
     const targetAmounts = VILOG_PRICE_CATALOG.map(pkg => pkg.amount);
 
+    await RobuxPackage.updateMany(
+        { type: { $in: ['LOGIN', 'login', 'robux_login'] } },
+        { $set: { type: 'vilog', isActive: true } }
+    );
+
     await Promise.all(VILOG_PRICE_CATALOG.map(pkg => RobuxPackage.findOneAndUpdate(
         { type: 'vilog', amount: pkg.amount },
         {

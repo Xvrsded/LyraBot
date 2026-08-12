@@ -225,6 +225,9 @@ class ConfigService {
         if (normalizedType === 'visend') {
             typesToFetch = ['visend', 'custom'];
         }
+        if (normalizedType === 'vilog') {
+            typesToFetch = ['vilog', 'LOGIN', 'login', 'robux_login'];
+        }
         if (normalizedType === 'custom') {
             typesToFetch = ['custom'];
         }
