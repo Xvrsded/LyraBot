@@ -5,16 +5,18 @@ const settingsService = require('./settingsService');
 let isSeeding = false;
 
 const VILOG_PRICE_CATALOG = [
-    { amount: 100, price: 16000, sortOrder: 1 },
-    { amount: 200, price: 32000, sortOrder: 2 },
-    { amount: 300, price: 48000, sortOrder: 3 },
-    { amount: 400, price: 64000, sortOrder: 4 },
-    { amount: 500, price: 80000, sortOrder: 5 },
-    { amount: 600, price: 96000, sortOrder: 6 },
-    { amount: 700, price: 112000, sortOrder: 7 },
-    { amount: 800, price: 128000, sortOrder: 8 },
-    { amount: 900, price: 144000, sortOrder: 9 },
-    { amount: 1000, price: 160000, sortOrder: 10 }
+    { amount: 80, price: 16000, sortOrder: 1 },
+    { amount: 160, price: 32000, sortOrder: 2 },
+    { amount: 240, price: 48000, sortOrder: 3 },
+    { amount: 320, price: 64000, sortOrder: 4 },
+    { amount: 500, price: 74000, sortOrder: 5 },
+    { amount: 1000, price: 148000, sortOrder: 6 },
+    { amount: 1500, price: 222000, sortOrder: 7 },
+    { amount: 2000, price: 296000, sortOrder: 8 },
+    { amount: 2500, price: 370000, sortOrder: 9 },
+    { amount: 3000, price: 444000, sortOrder: 10 },
+    { amount: 5000, price: 740000, sortOrder: 11 },
+    { amount: 10000, price: 1480000, sortOrder: 12 }
 ];
 
 const VISEND_PRICE_CATALOG = [
