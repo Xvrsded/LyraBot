@@ -502,8 +502,8 @@ module.exports = {
                 const timeframe = customId.replace('leaderboard_', '');
                 try {
                     const { generateLeaderboardEmbed } = require('../services/leaderboardHelper');
-                    const embed = await generateLeaderboardEmbed(interaction.user, timeframe);
-                    await interaction.editReply({ embeds: [embed] });
+                    const result = await generateLeaderboardEmbed(interaction.user, timeframe);
+                    await interaction.editReply({ embeds: [result.embed], components: [result.row] });
                 } catch (error) {
                     console.error('Error generating leaderboard from button:', error);
                     await interaction.editReply('❌ Terjadi kesalahan saat memuat leaderboard.');

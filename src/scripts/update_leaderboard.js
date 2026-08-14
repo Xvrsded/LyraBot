@@ -163,7 +163,7 @@ function startLiveLeaderboard(client) {
             // Description has a 4096-character limit, whereas fields have a 1024-character limit.
             // Putting leaderboardText inside description avoids CombinedPropertyError length constraint crashes.
             const embed = new EmbedBuilder()
-                .setTitle('🏆 WinterStore - Robux & Product Leaderboard')
+                .setTitle('🏆 LYRA BLOX LEADERBOARD')
                 .setDescription(
                     'Daftar pembeli dengan total nominal belanja terbanyak di WinterStore.\n\n' +
                     '**🏆 Top Buyers (All-Time)**\n' +
@@ -187,10 +187,10 @@ function startLiveLeaderboard(client) {
 
             const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
             const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('leaderboard_daily').setLabel('Harian').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('leaderboard_weekly').setLabel('Mingguan').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('leaderboard_monthly').setLabel('Bulanan').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('leaderboard_alltime').setLabel('All Time').setStyle(ButtonStyle.Primary)
+                new ButtonBuilder().setCustomId('leaderboard_alltime').setLabel('🏆 All Time').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('leaderboard_daily').setLabel('📅 Harian').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('leaderboard_weekly').setLabel('📆 Mingguan').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('leaderboard_monthly').setLabel('🗓️ Bulanan').setStyle(ButtonStyle.Secondary)
             );
 
             if (liveMessage) {

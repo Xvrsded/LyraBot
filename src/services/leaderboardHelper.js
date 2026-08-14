@@ -1,34 +1,98 @@
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const Order = require('../models/Order');
 const ProductOrder = require('../models/ProductOrder');
 const User = require('../models/User');
+
+const monthNames = [
+    "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+    "Juli", "Agustus", "September", "Oktober", "November", "Desember"
+];
+
+function getWibDate(dateStr) {
+    // Current UTC time
+    const now = dateStr ? new Date(dateStr) : new Date();
+    // Convert to WIB string
+    const wibString = now.toLocaleString("en-US", { timeZone: "Asia/Jakarta" });
+    return new Date(wibString);
+}
+
+function getWibStartOf(period) {
+    const targetWib = getWibDate();
+    
+    if (period === 'daily') {
+        targetWib.setHours(0, 0, 0, 0);
+    } else if (period === 'weekly') {
+        const day = targetWib.getDay();
+        const diff = targetWib.getDate() - day + (day === 0 ? -6 : 1);
+        targetWib.setDate(diff);
+        targetWib.setHours(0, 0, 0, 0);
+    } else if (period === 'monthly') {
+        targetWib.setDate(1);
+        targetWib.setHours(0, 0, 0, 0);
+    }
+    
+    // Construct UTC Date that corresponds to the targetWib local time (WIB is UTC+7)
+    return new Date(Date.UTC(
+        targetWib.getFullYear(),
+        targetWib.getMonth(),
+        targetWib.getDate(),
+        targetWib.getHours() - 7,
+        targetWib.getMinutes(),
+        targetWib.getSeconds(),
+        targetWib.getMilliseconds()
+    ));
+}
+
+function getFormattedDateWib(period) {
+    const nowWib = getWibDate();
+    const d = nowWib.getDate();
+    const m = monthNames[nowWib.getMonth()];
+    const y = nowWib.getFullYear();
+    
+    if (period === 'daily') {
+        return `${d} ${m} ${y}`;
+    } else if (period === 'monthly') {
+        return `${m} ${y}`;
+    } else if (period === 'weekly') {
+        const targetWib = getWibDate();
+        const day = targetWib.getDay();
+        const diff = targetWib.getDate() - day + (day === 0 ? -6 : 1);
+        targetWib.setDate(diff);
+        const d1 = targetWib.getDate();
+        const m1 = monthNames[targetWib.getMonth()];
+        const y1 = targetWib.getFullYear();
+        
+        const endWib = new Date(targetWib);
+        endWib.setDate(endWib.getDate() + 6);
+        const d2 = endWib.getDate();
+        const m2 = monthNames[endWib.getMonth()];
+        const y2 = endWib.getFullYear();
+        
+        return `${d1} ${m1} ${y1} — ${d2} ${m2} ${y2}`;
+    }
+    return 'ALL TIME';
+}
 
 async function generateLeaderboardEmbed(interactionUser, timeframe = 'alltime') {
     const matchStage = {
         status: { $in: ['delivered', 'completed'] }
     };
 
-    let timeframeText = 'Semua Waktu';
-    const now = new Date();
+    let periodHeader = 'ALL TIME';
+    let dateStr = '';
 
     if (timeframe === 'daily') {
-        const startOfDay = new Date(now);
-        startOfDay.setHours(0, 0, 0, 0);
-        matchStage.createdAt = { $gte: startOfDay };
-        timeframeText = 'Harian';
+        matchStage.createdAt = { $gte: getWibStartOf('daily') };
+        periodHeader = '📅 HARIAN';
+        dateStr = getFormattedDateWib('daily');
     } else if (timeframe === 'weekly') {
-        const startOfWeek = new Date(now);
-        const day = startOfWeek.getDay();
-        const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
-        startOfWeek.setDate(diff);
-        startOfWeek.setHours(0, 0, 0, 0);
-        matchStage.createdAt = { $gte: startOfWeek };
-        timeframeText = 'Minggu Ini';
+        matchStage.createdAt = { $gte: getWibStartOf('weekly') };
+        periodHeader = '📆 MINGGUAN';
+        dateStr = getFormattedDateWib('weekly');
     } else if (timeframe === 'monthly') {
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        startOfMonth.setHours(0, 0, 0, 0);
-        matchStage.createdAt = { $gte: startOfMonth };
-        timeframeText = 'Bulan Ini';
+        matchStage.createdAt = { $gte: getWibStartOf('monthly') };
+        periodHeader = '🗓️ BULANAN';
+        dateStr = getFormattedDateWib('monthly');
     }
 
     const robuxOrders = await Order.aggregate([
@@ -100,13 +164,15 @@ async function generateLeaderboardEmbed(interactionUser, timeframe = 'alltime') 
     const leaderboard = Array.from(userMap.values())
         .sort((a, b) => b.totalSpent - a.totalSpent);
 
+    const embed = new EmbedBuilder()
+        .setTitle(`🏆 LYRA BLOX LEADERBOARD`)
+        .setColor('#0099ff')
+        .setFooter({ text: 'LyraBlox Leaderboard System' })
+        .setTimestamp();
+
     if (leaderboard.length === 0) {
-        const emptyEmbed = new EmbedBuilder()
-            .setTitle('🏆 WinterStore - Robux & Product Leaderboard')
-            .setDescription(`Belum ada data pembelian untuk periode **${timeframeText}**.`)
-            .setColor('#0099ff')
-            .setTimestamp();
-        return emptyEmbed;
+        embed.setDescription(`**${periodHeader}**\n${dateStr}\n\n📊 Belum ada transaksi pada periode ini.`);
+        return { embed };
     }
 
     const userRankIndex = leaderboard.findIndex(entry => entry.userId === interactionUser.id);
@@ -114,43 +180,36 @@ async function generateLeaderboardEmbed(interactionUser, timeframe = 'alltime') 
     const userStats = userRank !== null ? leaderboard[userRankIndex] : null;
 
     const topTen = leaderboard.slice(0, 10);
-    let description = `Berikut adalah peringkat pembeli terbanyak untuk periode **${timeframeText}**:\n\n`;
+    let description = `**${periodHeader}**\n${dateStr}\n\n`;
 
     description += topTen.map((entry, index) => {
         const rankEmojis = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
         const rankText = index < 10 ? rankEmojis[index] : `🏅`;
         const robloxText = entry.lastRobloxUsername ? ` (\`${entry.lastRobloxUsername}\`)` : '';
-        return `${rankText} **#${index + 1} | <@${entry.userId}>**${robloxText}\n` +
-               `├ 💎 **Volume Robux:** \`${entry.totalRobux ? entry.totalRobux.toLocaleString('id-ID') : 0} R$\`\n` +
-               `├ 💵 **Volume Belanja:** \`Rp ${entry.totalSpent.toLocaleString('id-ID')}\`\n` +
-               `└ 📦 **Total Transaksi:** \`${entry.totalOrders}x\``;
-    }).join('\n───────────────────\n');
+        return `${rankText} **<@${entry.userId}>**${robloxText}\n` +
+               `└ Rp ${entry.totalSpent.toLocaleString('id-ID')}`;
+    }).join('\n\n');
 
-    const embed = new EmbedBuilder()
-        .setTitle('🏆 WinterStore - Robux & Product Leaderboard')
-        .setDescription(description)
-        .setColor('#0099ff')
-        .setFooter({ text: 'WinterStore Leaderboard System' })
-        .setTimestamp();
+    embed.setDescription(description);
 
     if (userRank !== null && userStats) {
         embed.addFields({
             name: '👤 Peringkat Anda',
             value: `Peringkat **#${userRank}** dari **${leaderboard.length}** pembeli\n` +
-                   `├ 💎 **Volume Robux:** \`${userStats.totalRobux ? userStats.totalRobux.toLocaleString('id-ID') : 0} R$\`\n` +
-                   `├ 💵 **Volume Belanja:** \`Rp ${userStats.totalSpent.toLocaleString('id-ID')}\`\n` +
-                   `└ 📦 **Total Transaksi:** \`${userStats.totalOrders}x\``,
-            inline: false
-        });
-    } else {
-        embed.addFields({
-            name: '👤 Peringkat Anda',
-            value: `Anda belum terdaftar dalam periode **${timeframeText}** ini.`,
+                   `└ Total Belanja: \`Rp ${userStats.totalSpent.toLocaleString('id-ID')}\``,
             inline: false
         });
     }
 
-    return embed;
+    // Include the buttons so they stay at the bottom of the ephemeral message too
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('leaderboard_alltime').setLabel('🏆 All Time').setStyle(timeframe === 'alltime' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('leaderboard_daily').setLabel('📅 Harian').setStyle(timeframe === 'daily' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('leaderboard_weekly').setLabel('📆 Mingguan').setStyle(timeframe === 'weekly' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('leaderboard_monthly').setLabel('🗓️ Bulanan').setStyle(timeframe === 'monthly' ? ButtonStyle.Primary : ButtonStyle.Secondary)
+    );
+
+    return { embed, row };
 }
 
-module.exports = { generateLeaderboardEmbed };
+module.exports = { generateLeaderboardEmbed, getWibStartOf, getFormattedDateWib, getWibDate };

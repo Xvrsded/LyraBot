@@ -17,6 +17,19 @@ const VILOG_PRICE_CATALOG = [
     { amount: 1000, price: 160000, sortOrder: 10 }
 ];
 
+const VISEND_PRICE_CATALOG = [
+    { amount: 100, price: 16000, sortOrder: 1 },
+    { amount: 200, price: 32000, sortOrder: 2 },
+    { amount: 300, price: 48000, sortOrder: 3 },
+    { amount: 400, price: 64000, sortOrder: 4 },
+    { amount: 500, price: 80000, sortOrder: 5 },
+    { amount: 600, price: 96000, sortOrder: 6 },
+    { amount: 700, price: 112000, sortOrder: 7 },
+    { amount: 800, price: 128000, sortOrder: 8 },
+    { amount: 900, price: 144000, sortOrder: 9 },
+    { amount: 1000, price: 160000, sortOrder: 10 }
+];
+
 async function syncVilogPriceCatalog() {
     const targetAmounts = VILOG_PRICE_CATALOG.map(pkg => pkg.amount);
 
@@ -44,30 +57,34 @@ async function syncVilogPriceCatalog() {
     );
 }
 
+async function syncVisendPriceCatalog() {
+    const targetAmounts = VISEND_PRICE_CATALOG.map(pkg => pkg.amount);
+
+    // Upsert required packages based on type + amount to ensure idempotency
+    await Promise.all(VISEND_PRICE_CATALOG.map(pkg => RobuxPackage.findOneAndUpdate(
+        { type: 'visend', amount: pkg.amount },
+        {
+            type: 'visend',
+            amount: pkg.amount,
+            price: pkg.price,
+            sortOrder: pkg.sortOrder,
+            displayOrder: pkg.sortOrder,
+            isActive: true
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+    )));
+
+    // Clean up unwanted visend packages (e.g. 50, 150)
+    await RobuxPackage.deleteMany({ type: 'visend', amount: { $nin: targetAmounts } });
+}
+
 async function seedRobuxPackages() {
     if (isSeeding) return;
     isSeeding = true;
     try {
         await syncVilogPriceCatalog();
-
-        const visendCount = await RobuxPackage.countDocuments({ type: 'visend' });
-        if (visendCount === 0) {
-            const visendPackages = [
-                { type: 'visend', amount: 50, price: 8500, sortOrder: 1 },
-                { type: 'visend', amount: 100, price: 15000, sortOrder: 2 },
-                { type: 'visend', amount: 200, price: 30000, sortOrder: 3 },
-                { type: 'visend', amount: 300, price: 45000, sortOrder: 4 },
-                { type: 'visend', amount: 400, price: 60000, sortOrder: 5 },
-                { type: 'visend', amount: 500, price: 75000, sortOrder: 6 },
-                { type: 'visend', amount: 600, price: 90000, sortOrder: 7 },
-                { type: 'visend', amount: 700, price: 105000, sortOrder: 8 },
-                { type: 'visend', amount: 800, price: 120000, sortOrder: 9 },
-                { type: 'visend', amount: 900, price: 135000, sortOrder: 10 },
-                { type: 'visend', amount: 1000, price: 150000, sortOrder: 11 }
-            ];
-            await RobuxPackage.insertMany(visendPackages);
-            console.log('[Robux] Successfully seeded default Visend packages to existing DB.');
-        }
+        await syncVisendPriceCatalog();
+        console.log('[Robux] Successfully synced Robux packages to DB.');
     } catch (err) {
         console.error('[Robux Seeder] Error seeding packages:', err);
     } finally {
