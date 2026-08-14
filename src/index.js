@@ -52,21 +52,13 @@ console.log('[BOOT] Connecting MongoDB...');
 mongoose.connect(process.env.MONGO_URI, { family: 4, serverSelectionTimeoutMS: 60000 })
     .then(async () => {
         console.log('[BOOT] MongoDB connected.');
+        // Clean up legacy 150 custom package if it exists
         try {
             const RobuxPackage = require('./models/RobuxPackage');
-            const pkg = await RobuxPackage.findOne({ type: 'custom', amount: 150 });
-            if (!pkg) {
-                await RobuxPackage.create({
-                    type: 'custom',
-                    amount: 150,
-                    price: 23500,
-                    label: '150 Robux Custom',
-                    displayOrder: 999
-                });
-                console.log('[BOOT] Created 150 Robux Custom package');
-            }
+            await RobuxPackage.deleteMany({ type: 'custom', amount: 150 });
+            console.log('[BOOT] Cleaned up legacy 150 custom packages');
         } catch (e) {
-            console.error('[ERROR] Failed to seed custom package:', e.message);
+            console.error('[ERROR] Failed to clean custom package:', e.message);
         }
     })
     .catch(err => {

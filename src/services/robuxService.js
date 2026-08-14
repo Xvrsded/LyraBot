@@ -18,24 +18,24 @@ const VILOG_PRICE_CATALOG = [
 ];
 
 const VISEND_PRICE_CATALOG = [
-    { amount: 100, price: 16000, sortOrder: 1 },
-    { amount: 200, price: 32000, sortOrder: 2 },
-    { amount: 300, price: 48000, sortOrder: 3 },
-    { amount: 400, price: 64000, sortOrder: 4 },
-    { amount: 500, price: 80000, sortOrder: 5 },
-    { amount: 600, price: 96000, sortOrder: 6 },
-    { amount: 700, price: 112000, sortOrder: 7 },
-    { amount: 800, price: 128000, sortOrder: 8 },
-    { amount: 900, price: 144000, sortOrder: 9 },
-    { amount: 1000, price: 160000, sortOrder: 10 }
+    { amount: 50, price: 8500, sortOrder: 1 },
+    { amount: 100, price: 15000, sortOrder: 2 },
+    { amount: 200, price: 30000, sortOrder: 3 },
+    { amount: 300, price: 45000, sortOrder: 4 },
+    { amount: 400, price: 60000, sortOrder: 5 },
+    { amount: 500, price: 75000, sortOrder: 6 },
+    { amount: 600, price: 90000, sortOrder: 7 },
+    { amount: 700, price: 105000, sortOrder: 8 },
+    { amount: 800, price: 120000, sortOrder: 9 },
+    { amount: 900, price: 135000, sortOrder: 10 },
+    { amount: 1000, price: 150000, sortOrder: 11 }
 ];
 
 async function syncVilogPriceCatalog() {
     const targetAmounts = VILOG_PRICE_CATALOG.map(pkg => pkg.amount);
 
-    await RobuxPackage.updateMany(
-        { type: { $in: ['LOGIN', 'login', 'robux_login'] } },
-        { $set: { type: 'vilog', isActive: true } }
+    await RobuxPackage.deleteMany(
+        { type: { $in: ['LOGIN', 'login', 'robux_login'] } }
     );
 
     await Promise.all(VILOG_PRICE_CATALOG.map(pkg => RobuxPackage.findOneAndUpdate(
