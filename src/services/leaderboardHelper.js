@@ -170,14 +170,17 @@ async function generateLeaderboardEmbed(interactionUser, timeframe = 'alltime') 
         .setFooter({ text: 'LyraBlox Leaderboard System' })
         .setTimestamp();
 
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('leaderboard_alltime').setLabel('🏆 All Time').setStyle(timeframe === 'alltime' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('leaderboard_daily').setLabel('📅 Harian').setStyle(timeframe === 'daily' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('leaderboard_weekly').setLabel('📆 Mingguan').setStyle(timeframe === 'weekly' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('leaderboard_monthly').setLabel('🗓️ Bulanan').setStyle(timeframe === 'monthly' ? ButtonStyle.Primary : ButtonStyle.Secondary)
+    );
+
     if (leaderboard.length === 0) {
         embed.setDescription(`**${periodHeader}**\n${dateStr}\n\n📊 Belum ada transaksi pada periode ini.`);
-        return { embed };
+        return { embed, row };
     }
-
-    const userRankIndex = leaderboard.findIndex(entry => entry.userId === interactionUser.id);
-    const userRank = userRankIndex !== -1 ? userRankIndex + 1 : null;
-    const userStats = userRank !== null ? leaderboard[userRankIndex] : null;
 
     const topTen = leaderboard.slice(0, 10);
     let description = `**${periodHeader}**\n${dateStr}\n\n`;
@@ -192,23 +195,7 @@ async function generateLeaderboardEmbed(interactionUser, timeframe = 'alltime') 
 
     embed.setDescription(description);
 
-    if (userRank !== null && userStats) {
-        embed.addFields({
-            name: '👤 Peringkat Anda',
-            value: `Peringkat **#${userRank}** dari **${leaderboard.length}** pembeli\n` +
-                   `└ Total Belanja: \`Rp ${userStats.totalSpent.toLocaleString('id-ID')}\``,
-            inline: false
-        });
-    }
-
-    // Include the buttons so they stay at the bottom of the ephemeral message too
-    const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('leaderboard_alltime').setLabel('🏆 All Time').setStyle(timeframe === 'alltime' ? ButtonStyle.Primary : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('leaderboard_daily').setLabel('📅 Harian').setStyle(timeframe === 'daily' ? ButtonStyle.Primary : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('leaderboard_weekly').setLabel('📆 Mingguan').setStyle(timeframe === 'weekly' ? ButtonStyle.Primary : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('leaderboard_monthly').setLabel('🗓️ Bulanan').setStyle(timeframe === 'monthly' ? ButtonStyle.Primary : ButtonStyle.Secondary)
-    );
-
+    // Include the buttons so they stay at the bottom of the public message
     return { embed, row };
 }
 

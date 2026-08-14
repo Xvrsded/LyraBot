@@ -498,7 +498,7 @@ module.exports = {
             const { customId } = interaction;
 
             if (customId.startsWith('leaderboard_')) {
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferUpdate();
                 const timeframe = customId.replace('leaderboard_', '');
                 try {
                     const { generateLeaderboardEmbed } = require('../services/leaderboardHelper');
@@ -506,7 +506,7 @@ module.exports = {
                     await interaction.editReply({ embeds: [result.embed], components: [result.row] });
                 } catch (error) {
                     console.error('Error generating leaderboard from button:', error);
-                    await interaction.editReply('❌ Terjadi kesalahan saat memuat leaderboard.');
+                    await interaction.followUp({ content: '❌ Terjadi kesalahan saat memuat leaderboard.', ephemeral: true });
                 }
                 return;
             }
