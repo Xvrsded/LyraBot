@@ -185,11 +185,19 @@ function startLiveLeaderboard(client) {
                 }
             }
 
+            const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('leaderboard_daily').setLabel('Harian').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('leaderboard_weekly').setLabel('Mingguan').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('leaderboard_monthly').setLabel('Bulanan').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('leaderboard_alltime').setLabel('All Time').setStyle(ButtonStyle.Primary)
+            );
+
             if (liveMessage) {
-                await liveMessage.edit({ embeds: [embed] });
+                await liveMessage.edit({ embeds: [embed], components: [row] });
                 console.log('✅ Live Leaderboard berhasil di-update.');
             } else {
-                const sentMessage = await channel.send({ embeds: [embed] });
+                const sentMessage = await channel.send({ embeds: [embed], components: [row] });
                 configDoc.value.messageId = sentMessage.id;
                 configDoc.markModified('value');
                 await configDoc.save();

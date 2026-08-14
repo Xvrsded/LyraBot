@@ -73,7 +73,7 @@ async function createTicketFromSession(interaction, session, client) {
         const isCopay = session.type === 'copay';
         const isMM = session.type === 'mm_rekber';
         const isLimited = session.type === 'limited';
-        const productName = isGIG ? 'Gift In Game' : (isVisend ? 'Robux Via Send' : (isCopay ? 'Robux Community Payout' : (isMM ? 'MM / Rekber' : (isLimited ? 'Limited Item' : 'Robux Via Login'))));
+        const productName = isGIG ? 'Gift In Game' : (isVisend ? 'Robux Via Send' : (isCopay ? 'Robux Gamepass (Pending 5 Hari)' : (isMM ? 'MM / Rekber' : (isLimited ? 'Limited Item' : 'Robux Via Login'))));
         const amountDisplay = session.amount;
 
         // Create Ticket Channel
@@ -134,7 +134,7 @@ async function createTicketFromSession(interaction, session, client) {
                 fee: session.fee || null,
                 selectedRange: session.selectedRange || null,
                 rate: session.rate || null,
-                pricingType: session.isCustom ? 'custom' : (session.amount === 150 && session.price === 23500 ? 'custom' : 'normal'),
+                pricingType: session.isCustom ? 'custom' : 'normal',
                 timestamp: Date.now()
             }
         });
@@ -494,9 +494,22 @@ module.exports = {
             }
         }
 
-        // Handle Button Interactions
         if (interaction.isButton()) {
             const { customId } = interaction;
+
+            if (customId.startsWith('leaderboard_')) {
+                await interaction.deferReply({ ephemeral: true });
+                const timeframe = customId.replace('leaderboard_', '');
+                try {
+                    const { generateLeaderboardEmbed } = require('../services/leaderboardHelper');
+                    const embed = await generateLeaderboardEmbed(interaction.user, timeframe);
+                    await interaction.editReply({ embeds: [embed] });
+                } catch (error) {
+                    console.error('Error generating leaderboard from button:', error);
+                    await interaction.editReply('❌ Terjadi kesalahan saat memuat leaderboard.');
+                }
+                return;
+            }
 
 
 
@@ -548,7 +561,7 @@ module.exports = {
                     .addOptions(
                         { label: 'Robux Via Login', value: 'LOGIN', emoji: '🟢' },
                         { label: 'Robux Via Send', value: 'SEND', emoji: '📦' },
-                        { label: 'Community Payout', value: 'COPAY', emoji: '🌐' }
+                        { label: 'Gamepass (Pending 5 Hari)', value: 'COPAY', emoji: '🌐' }
                     );
 
                 const row = new ActionRowBuilder().addComponents(select);
@@ -1012,7 +1025,7 @@ module.exports = {
                 });
 
                 const row = new ActionRowBuilder().addComponents(selectMenu);
-                return interaction.reply({ content: 'Silakan pilih paket Community Payout yang ingin Anda beli:', components: [row], ephemeral: true });
+                return interaction.reply({ content: 'Silakan pilih paket Gamepass (Pending 5 Hari) yang ingin Anda beli:', components: [row], ephemeral: true });
             }
 
             // Select Menu: copay_select_package
@@ -1023,7 +1036,7 @@ module.exports = {
 
                 const modal = new ModalBuilder()
                     .setCustomId(`copay_modal_order:${packageId}`)
-                    .setTitle('Konfirmasi Pesanan Community Payout');
+                    .setTitle('Konfirmasi Pesanan Gamepass (Pending 5 Hari)');
                 
                 const robloxUsernameInput = new TextInputBuilder()
                     .setCustomId('roblox_username')
