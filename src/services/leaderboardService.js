@@ -32,8 +32,21 @@ async function getBadgeEmoji(badgeStr) {
     return badgeStr.split(' ')[0];
 }
 
-async function addTransaction(userId, amount) {
+async function addTransaction(userId, amount, messageId = null, timestamp = null) {
     try {
+        if (messageId) {
+            const LeaderboardTransaction = require('../models/LeaderboardTransaction');
+            const exists = await LeaderboardTransaction.exists({ messageId });
+            if (exists) return null; // Already processed, avoid double counting
+
+            await LeaderboardTransaction.create({
+                userId,
+                amount,
+                messageId,
+                createdAt: timestamp ? new Date(timestamp) : new Date()
+            });
+        }
+
         let spender = await TopSpender.findOne({ userId });
         if (!spender) {
             spender = new TopSpender({
@@ -102,8 +115,8 @@ async function syncTransactionLogs(client) {
                                     const amount = parseInt(totalField.value.replace(/[^0-9]/g, ''), 10);
                                     
                                     if (!isNaN(amount)) {
-                                        await addTransaction(userId, amount);
-                                        totalSynced++;
+                                        const res = await addTransaction(userId, amount, msg.id, msg.createdTimestamp);
+                                        if (res) totalSynced++;
                                     }
                                 }
                             }

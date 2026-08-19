@@ -1,6 +1,5 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const Order = require('../models/Order');
-const ProductOrder = require('../models/ProductOrder');
+const LeaderboardTransaction = require('../models/LeaderboardTransaction');
 const User = require('../models/User');
 
 const monthNames = [
@@ -74,9 +73,7 @@ function getFormattedDateWib(period) {
 }
 
 async function generateLeaderboardEmbed(interactionUser, timeframe = 'alltime') {
-    const matchStage = {
-        status: { $in: ['delivered', 'completed'] }
-    };
+    const matchStage = {};
 
     let periodHeader = 'ALL TIME';
     let dateStr = '';
@@ -95,25 +92,12 @@ async function generateLeaderboardEmbed(interactionUser, timeframe = 'alltime') 
         dateStr = getFormattedDateWib('monthly');
     }
 
-    const robuxOrders = await Order.aggregate([
+    const transactions = await LeaderboardTransaction.aggregate([
         { $match: matchStage },
         {
             $group: {
                 _id: '$userId',
-                totalRobux: { $sum: '$robuxAmount' },
-                totalSpent: { $sum: '$price' },
-                totalOrders: { $sum: 1 },
-                lastRobloxUsername: { $last: '$robloxUsername' }
-            }
-        }
-    ]);
-
-    const productOrders = await ProductOrder.aggregate([
-        { $match: matchStage },
-        {
-            $group: {
-                _id: '$userId',
-                totalSpent: { $sum: '$price' },
+                totalSpent: { $sum: '$amount' },
                 totalOrders: { $sum: 1 }
             }
         }
@@ -121,30 +105,13 @@ async function generateLeaderboardEmbed(interactionUser, timeframe = 'alltime') 
 
     const userMap = new Map();
 
-    for (const entry of robuxOrders) {
+    for (const entry of transactions) {
         userMap.set(entry._id, {
             userId: entry._id,
-            totalRobux: entry.totalRobux,
             totalSpent: entry.totalSpent,
             totalOrders: entry.totalOrders,
-            lastRobloxUsername: entry.lastRobloxUsername
+            lastRobloxUsername: null
         });
-    }
-
-    for (const entry of productOrders) {
-        if (userMap.has(entry._id)) {
-            const existing = userMap.get(entry._id);
-            existing.totalSpent += entry.totalSpent;
-            existing.totalOrders += entry.totalOrders;
-        } else {
-            userMap.set(entry._id, {
-                userId: entry._id,
-                totalRobux: 0,
-                totalSpent: entry.totalSpent,
-                totalOrders: entry.totalOrders,
-                lastRobloxUsername: null
-            });
-        }
     }
 
     const userIdsWithoutRoblox = Array.from(userMap.values())
@@ -177,6 +144,13 @@ async function generateLeaderboardEmbed(interactionUser, timeframe = 'alltime') 
         new ButtonBuilder().setCustomId('leaderboard_monthly').setLabel('🗓️ Bulanan').setStyle(timeframe === 'monthly' ? ButtonStyle.Primary : ButtonStyle.Secondary)
     );
 
+    let globalTotalSpent = 0;
+    let globalTotalOrders = 0;
+    for (const entry of transactions) {
+        globalTotalSpent += entry.totalSpent;
+        globalTotalOrders += entry.totalOrders;
+    }
+
     if (leaderboard.length === 0) {
         embed.setDescription(`**${periodHeader}**\n${dateStr}\n\n📊 Belum ada transaksi pada periode ini.`);
         return { embed, row };
@@ -185,12 +159,16 @@ async function generateLeaderboardEmbed(interactionUser, timeframe = 'alltime') 
     const topTen = leaderboard.slice(0, 10);
     let description = `**${periodHeader}**\n${dateStr}\n\n`;
 
+    description += `📈 **Total Order:** \`${globalTotalOrders.toLocaleString('id-ID')} Orders\`\n`;
+    description += `💰 **Total Pendapatan:** \`Rp ${globalTotalSpent.toLocaleString('id-ID')}\`\n\n`;
+    description += `🏆 **TOP 10 SPENDER**\n\n`;
+
     description += topTen.map((entry, index) => {
         const rankEmojis = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
         const rankText = index < 10 ? rankEmojis[index] : `🏅`;
         const robloxText = entry.lastRobloxUsername ? ` (\`${entry.lastRobloxUsername}\`)` : '';
         return `${rankText} **<@${entry.userId}>**${robloxText}\n` +
-               `└ Rp ${entry.totalSpent.toLocaleString('id-ID')}`;
+               `└ Rp ${entry.totalSpent.toLocaleString('id-ID')} (${entry.totalOrders} Orders)`;
     }).join('\n\n');
 
     embed.setDescription(description);

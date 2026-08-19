@@ -1,8 +1,5 @@
-const Order = require('../models/Order');
-const ProductOrder = require('../models/ProductOrder');
 const Config = require('../models/Config');
-const User = require('../models/User');
-const { EmbedBuilder } = require('discord.js');
+const { generateLeaderboardEmbed } = require('../services/leaderboardHelper');
 
 let updateLeaderboardFn = null;
 
@@ -33,148 +30,8 @@ function startLiveLeaderboard(client) {
                 return;
             }
 
-            const matchStage = { status: { $in: ['delivered', 'completed'] } };
-
-            // 1. Fetch Robux orders
-            const robuxOrders = await Order.aggregate([
-                { $match: matchStage },
-                {
-                    $group: {
-                        _id: '$userId',
-                        totalRobux: { $sum: '$robuxAmount' },
-                        totalSpent: { $sum: '$price' },
-                        totalOrders: { $sum: 1 },
-                        lastRobloxUsername: { $last: '$robloxUsername' }
-                    }
-                }
-            ]);
-
-            // 2. Fetch Product orders
-            const productOrders = await ProductOrder.aggregate([
-                { $match: matchStage },
-                {
-                    $group: {
-                        _id: '$userId',
-                        totalSpent: { $sum: '$price' },
-                        totalOrders: { $sum: 1 }
-                    }
-                }
-            ]);
-
-            // 3. Combine in JavaScript
-            const userMap = new Map();
-
-            for (const entry of robuxOrders) {
-                userMap.set(entry._id, {
-                    userId: entry._id,
-                    totalRobux: entry.totalRobux,
-                    totalSpent: entry.totalSpent,
-                    totalOrders: entry.totalOrders,
-                    lastRobloxUsername: entry.lastRobloxUsername
-                });
-            }
-
-            for (const entry of productOrders) {
-                if (userMap.has(entry._id)) {
-                    const existing = userMap.get(entry._id);
-                    existing.totalSpent += entry.totalSpent;
-                    existing.totalOrders += entry.totalOrders;
-                } else {
-                    userMap.set(entry._id, {
-                        userId: entry._id,
-                        totalRobux: 0,
-                        totalSpent: entry.totalSpent,
-                        totalOrders: entry.totalOrders,
-                        lastRobloxUsername: null
-                    });
-                }
-            }
-
-            // Fetch Roblox usernames from User model for entries missing robloxUsername
-            const userIdsWithoutRoblox = Array.from(userMap.values())
-                .filter(u => !u.lastRobloxUsername)
-                .map(u => u.userId);
-
-            if (userIdsWithoutRoblox.length > 0) {
-                const verifiedUsers = await User.find({ discordId: { $in: userIdsWithoutRoblox } });
-                for (const vUser of verifiedUsers) {
-                    const entry = userMap.get(vUser.discordId);
-                    if (entry) {
-                        entry.lastRobloxUsername = vUser.robloxUsername;
-                    }
-                }
-            }
-
-            // Sort by totalSpent descending
-            const leaderboard = Array.from(userMap.values())
-                .sort((a, b) => b.totalSpent - a.totalSpent);
-
-            // 4. Server stats aggregation (Robux + Products)
-            const serverRobuxStats = await Order.aggregate([
-                { $match: matchStage },
-                {
-                    $group: {
-                        _id: null,
-                        totalRobux: { $sum: '$robuxAmount' },
-                        totalSpent: { $sum: '$price' },
-                        totalOrders: { $sum: 1 }
-                    }
-                }
-            ]);
-
-            const serverProductStats = await ProductOrder.aggregate([
-                { $match: matchStage },
-                {
-                    $group: {
-                        _id: null,
-                        totalSpent: { $sum: '$price' },
-                        totalOrders: { $sum: 1 }
-                    }
-                }
-            ]);
-
-            const rStats = serverRobuxStats[0] || { totalRobux: 0, totalSpent: 0, totalOrders: 0 };
-            const pStats = serverProductStats[0] || { totalSpent: 0, totalOrders: 0 };
-
-            const totalRobux = rStats.totalRobux;
-            const totalSpent = rStats.totalSpent + pStats.totalSpent;
-            const totalOrders = rStats.totalOrders + pStats.totalOrders;
-
-            // 5. Generate formatted description with dividers
-            let leaderboardText = '';
-            if (leaderboard.length === 0) {
-                leaderboardText = '_Belum ada data transaksi selesai._';
-            } else {
-                const rankEmojis = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
-                leaderboardText = leaderboard.slice(0, 10).map((entry, index) => {
-                    const emoji = index < 10 ? rankEmojis[index] : `🏅`;
-                    const robloxText = entry.lastRobloxUsername ? ` (\`${entry.lastRobloxUsername}\`)` : '';
-                    return `${emoji} **#${index + 1} | <@${entry.userId}>**${robloxText}\n` +
-                           `├ 💎 **Volume Robux:** \`${entry.totalRobux.toLocaleString('id-ID')} R$\`\n` +
-                           `├ 💵 **Volume Belanja:** \`Rp ${entry.totalSpent.toLocaleString('id-ID')}\`\n` +
-                           `└ 📦 **Total Transaksi:** \`${entry.totalOrders}x\``;
-                }).join('\n───────────────────\n');
-            }
-
-            const statsText = `├ 💎 **Total Robux Terjual:** \`${totalRobux.toLocaleString('id-ID')} R$\`\n` +
-                              `├ 💵 **Total Volume Belanja:** \`Rp ${totalSpent.toLocaleString('id-ID')}\`\n` +
-                              `└ 📦 **Total Order Selesai:** \`${totalOrders}x\``;
-
-            // Description has a 4096-character limit, whereas fields have a 1024-character limit.
-            // Putting leaderboardText inside description avoids CombinedPropertyError length constraint crashes.
-            const embed = new EmbedBuilder()
-                .setTitle('🏆 LYRA BLOX LEADERBOARD')
-                .setDescription(
-                    'Daftar pembeli dengan total nominal belanja terbanyak di WinterStore.\n\n' +
-                    '**🏆 Top Buyers (All-Time)**\n' +
-                    leaderboardText
-                )
-                .setColor('#0099ff')
-                .addFields(
-                    { name: '📊 Akumulasi Server (All-Time)', value: statsText, inline: false }
-                )
-                .setFooter({ text: 'WinterStore Leaderboard System' })
-                .setTimestamp();
+            // Generate the embed from the helper (same as button click)
+            const result = await generateLeaderboardEmbed(null, 'alltime');
 
             let liveMessage = null;
             if (messageId) {
@@ -185,19 +42,11 @@ function startLiveLeaderboard(client) {
                 }
             }
 
-            const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('leaderboard_alltime').setLabel('🏆 All Time').setStyle(ButtonStyle.Primary),
-                new ButtonBuilder().setCustomId('leaderboard_daily').setLabel('📅 Harian').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('leaderboard_weekly').setLabel('📆 Mingguan').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('leaderboard_monthly').setLabel('🗓️ Bulanan').setStyle(ButtonStyle.Secondary)
-            );
-
             if (liveMessage) {
-                await liveMessage.edit({ embeds: [embed], components: [row] });
+                await liveMessage.edit({ embeds: [result.embed], components: [result.row] });
                 console.log('✅ Live Leaderboard berhasil di-update.');
             } else {
-                const sentMessage = await channel.send({ embeds: [embed], components: [row] });
+                const sentMessage = await channel.send({ embeds: [result.embed], components: [result.row] });
                 configDoc.value.messageId = sentMessage.id;
                 configDoc.markModified('value');
                 await configDoc.save();

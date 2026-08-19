@@ -497,6 +497,11 @@ module.exports = {
         if (interaction.isButton()) {
             const { customId } = interaction;
 
+            if (customId === 'verify') {
+                const verificationService = require('../services/verificationService');
+                return await verificationService.handleVerifyButton(interaction);
+            }
+
             if (customId.startsWith('leaderboard_')) {
                 await interaction.deferUpdate();
                 const timeframe = customId.replace('leaderboard_', '');
