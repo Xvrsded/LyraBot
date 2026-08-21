@@ -297,8 +297,44 @@ async function syncGigPanel(client) {
             .setTimestamp();
 
         const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('gig_order_now').setLabel('🛒 Order Sekarang').setStyle(ButtonStyle.Success)
+            new ButtonBuilder().setCustomId('gig_order_now').setLabel('🛒 Order GIG Sekarang').setStyle(ButtonStyle.Success)
         );
+
+        const { StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
+        const fishitSelect = new StringSelectMenuBuilder()
+            .setCustomId('boost_fishit_select_package')
+            .setPlaceholder('🛒 Order Boost Fishit...')
+            .addOptions(
+                new StringSelectMenuOptionBuilder().setLabel('x8 (6 jam)').setValue('x8 (6 jam):113500').setDescription('Rp 113.500'),
+                new StringSelectMenuOptionBuilder().setLabel('x8 (9 jam)').setValue('x8 (9 jam):139500').setDescription('Rp 139.500'),
+                new StringSelectMenuOptionBuilder().setLabel('x8 (12 jam)').setValue('x8 (12 jam):166000').setDescription('Rp 166.000'),
+                new StringSelectMenuOptionBuilder().setLabel('x8 (24 jam)').setValue('x8 (24 jam):270500').setDescription('Rp 270.500'),
+                new StringSelectMenuOptionBuilder().setLabel('x8 (48 jam)').setValue('x8 (48 jam):479500').setDescription('Rp 479.500'),
+                new StringSelectMenuOptionBuilder().setLabel('x8 (72 jam)').setValue('x8 (72 jam):688500').setDescription('Rp 688.500'),
+                new StringSelectMenuOptionBuilder().setLabel('x8 (96 jam)').setValue('x8 (96 jam):897500').setDescription('Rp 897.500'),
+                new StringSelectMenuOptionBuilder().setLabel('x8 (168 jam)').setValue('x8 (168 jam):1525000').setDescription('Rp 1.525.000')
+            );
+
+        const kalbSelect = new StringSelectMenuBuilder()
+            .setCustomId('boost_kalb_select_package')
+            .setPlaceholder('🛒 Order Boost Kalb...')
+            .addOptions(
+                new StringSelectMenuOptionBuilder().setLabel('Server Luck x2 - x8').setValue('Server Luck x2 - x8:95000').setDescription('Rp 95.000'),
+                new StringSelectMenuOptionBuilder().setLabel('Server Luck x2 - x16').setValue('Server Luck x2 - x16:285000').setDescription('Rp 285.000'),
+                new StringSelectMenuOptionBuilder().setLabel('Bulk x8 (2 server)').setValue('Bulk x8 (2 server):190000').setDescription('Rp 190.000'),
+                new StringSelectMenuOptionBuilder().setLabel('Bulk x8 (3 server)').setValue('Bulk x8 (3 server):285000').setDescription('Rp 285.000'),
+                new StringSelectMenuOptionBuilder().setLabel('Bulk x8 (4 server)').setValue('Bulk x8 (4 server):380000').setDescription('Rp 380.000'),
+                new StringSelectMenuOptionBuilder().setLabel('Bulk x8 (5 server)').setValue('Bulk x8 (5 server):475000').setDescription('Rp 475.000'),
+                new StringSelectMenuOptionBuilder().setLabel('Bulk x8 (10 server)').setValue('Bulk x8 (10 server):950000').setDescription('Rp 950.000'),
+                new StringSelectMenuOptionBuilder().setLabel('Bulk x16 (2 server)').setValue('Bulk x16 (2 server):570000').setDescription('Rp 570.000'),
+                new StringSelectMenuOptionBuilder().setLabel('Bulk x16 (3 server)').setValue('Bulk x16 (3 server):855000').setDescription('Rp 855.000'),
+                new StringSelectMenuOptionBuilder().setLabel('Bulk x16 (4 server)').setValue('Bulk x16 (4 server):1140000').setDescription('Rp 1.140.000'),
+                new StringSelectMenuOptionBuilder().setLabel('Bulk x16 (5 server)').setValue('Bulk x16 (5 server):1425000').setDescription('Rp 1.425.000'),
+                new StringSelectMenuOptionBuilder().setLabel('Bulk x16 (10 server)').setValue('Bulk x16 (10 server):2850000').setDescription('Rp 2.850.000')
+            );
+
+        const row2 = new ActionRowBuilder().addComponents(fishitSelect);
+        const row3 = new ActionRowBuilder().addComponents(kalbSelect);
 
         try {
             const messages = await channel.messages.fetch({ limit: 50 });
@@ -306,7 +342,7 @@ async function syncGigPanel(client) {
             for (const m of oldMessages.values()) await m.delete().catch(() => {});
         } catch (err) {}
 
-        await channel.send({ embeds: [embed], components: [row] });
+        await channel.send({ embeds: [embed], components: [row, row2, row3] });
         console.log(`[Robux] GIG panel list successfully updated in channel: #${channel.name}`);
     } catch (err) {
         console.error('[Robux Service] Error syncing GIG panel:', err);

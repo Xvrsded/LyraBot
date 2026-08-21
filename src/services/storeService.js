@@ -38,6 +38,7 @@ async function buildDashboardMessage(client) {
             robux_login: { enabled: setting.products?.robux_login?.enabled ?? true },
             robux_send: { enabled: setting.products?.robux_send?.enabled ?? true },
             gift_in_game: { enabled: setting.products?.gift_in_game?.enabled ?? true },
+            copay: { enabled: setting.products?.copay?.enabled ?? true },
             mm_rekber: { status: setting.products?.mm_rekber?.status ?? 'OPEN' }
         };
         await setting.save();
@@ -46,6 +47,7 @@ async function buildDashboardMessage(client) {
     const loginIcon = setting.products.robux_login.enabled ? '🟢' : '🔴';
     const sendIcon = setting.products.robux_send.enabled ? '🟢' : '🔴';
     const gigIcon = setting.products.gift_in_game.enabled ? '🟢' : '🔴';
+    const copayIcon = (setting.products.copay && setting.products.copay.enabled) ? '🟢' : '🔴';
     const mmIcon = (setting.products.mm_rekber?.status === 'OPEN') ? '🟢' : '🔴';
 
     const limitedIcon = (!setting.products.limited_item || setting.products.limited_item.status === 'OPEN') ? '🟢' : '🔴';
@@ -57,6 +59,7 @@ async function buildDashboardMessage(client) {
             `${loginIcon} Robux Via Login\n` +
             `${sendIcon} Robux Via Send\n` +
             `${gigIcon} Gift In Game\n` +
+            `${copayIcon} Community Payout\n` +
             `${mmIcon} MM / Rekber\n` +
             `${limitedIcon} Limited Item\n\n` +
             `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
@@ -82,8 +85,12 @@ async function buildDashboardMessage(client) {
             .setStyle(setting.products.robux_send.enabled ? ButtonStyle.Success : ButtonStyle.Danger),
         new ButtonBuilder()
             .setCustomId('toggle_gift_in_game')
-            .setLabel(`${setting.products.gift_in_game.enabled ? '🟢' : '🔴'} Gift In Game`)
-            .setStyle(setting.products.gift_in_game.enabled ? ButtonStyle.Success : ButtonStyle.Danger)
+            .setLabel(`${setting.products.gift_in_game.enabled ? '🟢' : '🔴'} GIG`)
+            .setStyle(setting.products.gift_in_game.enabled ? ButtonStyle.Success : ButtonStyle.Danger),
+        new ButtonBuilder()
+            .setCustomId('toggle_copay')
+            .setLabel(`${(setting.products.copay && setting.products.copay.enabled) ? '🟢' : '🔴'} Payout`)
+            .setStyle((setting.products.copay && setting.products.copay.enabled) ? ButtonStyle.Success : ButtonStyle.Danger)
     );
 
     // Row 2: Management Menus

@@ -6,7 +6,7 @@ let updateLeaderboardFn = null;
 function startLiveLeaderboard(client) {
     // 10 minutes fallback interval
     const UPDATE_INTERVAL = 10 * 60 * 1000;
-    const CHANNEL_ID = '1520335952206368892';
+    const CHANNEL_ID = '1473251746259402867';
 
     const updateLeaderboardMessage = async () => {
         try {

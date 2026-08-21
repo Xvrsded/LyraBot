@@ -73,12 +73,17 @@ async function createTicketFromSession(interaction, session, client) {
         const isCopay = session.type === 'copay';
         const isMM = session.type === 'mm_rekber';
         const isLimited = session.type === 'limited';
-        const productName = isGIG ? 'Gift In Game' : (isVisend ? 'Robux Via Send' : (isCopay ? 'Robux Gamepass (Pending 5 Hari)' : (isMM ? 'MM / Rekber' : (isLimited ? 'Limited Item' : 'Robux Via Login'))));
+        const isBoost = session.type.startsWith('boost_');
+        
+        let productName = isGIG ? 'Gift In Game' : (isVisend ? 'Robux Via Send' : (isCopay ? 'Robux Gamepass (Pending 5 Hari)' : (isMM ? 'MM / Rekber' : (isLimited ? 'Limited Item' : 'Robux Via Login'))));
+        if (isBoost) {
+            productName = session.type === 'boost_fishit' ? 'Boost Fishit' : 'Boost Kalb';
+        }
         const amountDisplay = session.amount;
 
         // Create Ticket Channel
-        const channelPrefix = isGIG ? 'gig' : (isVisend ? 'visend' : (isCopay ? 'copay' : (isMM ? 'mm' : (isLimited ? 'limited' : 'vilog'))));
-        const channelName = (isMM || isLimited) ? `${channelPrefix}-${interaction.user.username}` : `${channelPrefix}-${amountDisplay}r-${interaction.user.username}`;
+        const channelPrefix = isBoost ? 'boost' : (isGIG ? 'gig' : (isVisend ? 'visend' : (isCopay ? 'copay' : (isMM ? 'mm' : (isLimited ? 'limited' : 'vilog')))));
+        const channelName = (isMM || isLimited || isBoost) ? `${channelPrefix}-${interaction.user.username}` : `${channelPrefix}-${amountDisplay}r-${interaction.user.username}`;
         const channel = await interaction.guild.channels.create({
             name: channelName,
             type: 0, // GuildText
@@ -119,17 +124,23 @@ async function createTicketFromSession(interaction, session, client) {
                 item: session.item,
                 price: session.price,
                 notes: session.notes
+            } : (isBoost ? {
+                username: session.robloxUsername,
+                password: session.robloxPassword,
+                package: session.packageLabel,
+                price: session.price
             } : {
                 username: session.robloxUsername,
                 password: session.robloxPassword,
                 amount: session.amount,
                 price: session.price,
                 package: session.isCustom ? 'Custom' : undefined
-            }))),
+            })))),
             snapshot: {
                 productType: session.type,
                 productName: productName,
-                amount: session.amount,
+                amount: session.amount || null,
+                package: session.packageLabel || null,
                 price: session.price,
                 fee: session.fee || null,
                 selectedRange: session.selectedRange || null,
@@ -156,10 +167,18 @@ async function createTicketFromSession(interaction, session, client) {
         voiceStatusService.updateAllVoiceStatuses(interaction.client);
         const { AttachmentBuilder } = require('discord.js');
         const path = require('path');
-        const qrPath = path.join(__dirname, '../../Public/QR Payment.jpg');
-        const qrAttachment = new AttachmentBuilder(qrPath, { name: 'qris.jpg' });
+        const qrPath = path.join(__dirname, '../../Public/LyraPayment.jpg');
+        const qrFilename = `qris_${Date.now()}.jpg`;
+        const qrAttachment = new AttachmentBuilder(qrPath, { name: qrFilename });
 
-        let ticketEmbed;
+        let ticketEmbed = new EmbedBuilder()
+            .setTitle('🔍 Konfirmasi Pemesanan Robux')
+            .setDescription(`Halo <@${interaction.user.id}>, silakan selesaikan pembayaran ke QRIS di bawah ini untuk melanjutkan pesanan Anda.\n\n━━━━━━━━━━━━━━━━━━\n\n👤 **Informasi Akun**\n• **Username:** \`${session.robloxUsername}\`\n• **Display Name:** \`${session.displayName}\`\n• **User ID:** \`${session.robloxId}\`\n\n📦 **Informasi Pesanan**\n• **Produk:** \`${isVisend ? 'Robux Via Send' : 'Robux Via Login'}\`\n• **Jumlah Robux:** \`${session.amount} Robux\`\n• **Total Harga:** \`Rp${session.price.toLocaleString('id-ID')}\`\n\n━━━━━━━━━━━━━━━━━━\n⚠️ *Harap pastikan semua data di atas sudah benar sebelum melakukan pembayaran.*`)
+            .setColor('#2ecc71')
+            .setImage(`attachment://${qrFilename}`)
+            .setFooter({ text: 'Sistem Tiket Otomatis' })
+            .setTimestamp();
+        
         if (isGIG) {
             ticketEmbed = new EmbedBuilder()
                 .setTitle('🛒 Pesanan LyraBlox')
@@ -193,6 +212,7 @@ async function createTicketFromSession(interaction, session, client) {
                         inline: false 
                     }
                 )
+                .setImage(`attachment://${qrFilename}`)
                 .setTimestamp();
         } else if (isMM) {
             ticketEmbed = new EmbedBuilder()
@@ -226,6 +246,7 @@ async function createTicketFromSession(interaction, session, client) {
                         inline: false 
                     }
                 )
+                .setImage(`attachment://${qrFilename}`)
                 .setTimestamp();
         } else if (isLimited) {
             ticketEmbed = new EmbedBuilder()
@@ -254,6 +275,36 @@ async function createTicketFromSession(interaction, session, client) {
                         inline: false 
                     }
                 )
+                .setImage(`attachment://${qrFilename}`)
+                .setTimestamp();
+        } else if (isBoost) {
+            ticketEmbed = new EmbedBuilder()
+                .setTitle('🛒 Pesanan LyraBlox - Boost')
+                .setDescription(
+                    `Halo <@${interaction.user.id}>,\n\n` +
+                    `Terima kasih telah memesan layanan Boost di LyraBlox.\n` +
+                    `Pesanan berhasil dibuat.\n\n━━━━━━━━━━━━━━━━━━\n\n`
+                )
+                .setColor('#ff9900')
+                .addFields(
+                    { name: '📦 Produk', value: productName, inline: true },
+                    { name: '🎁 Paket', value: `\`${session.packageLabel}\``, inline: true },
+                    { name: '💰 Harga', value: `\`Rp ${session.price.toLocaleString('id-ID')}\``, inline: true },
+                    { name: '👤 Username Roblox', value: `\`${session.robloxUsername}\``, inline: true },
+                    { name: '📌 Status', value: '🟡 Pending Payment', inline: true },
+                    ...(session.robloxPassword ? [{ name: '🔑 Password', value: `||${session.robloxPassword}||`, inline: true }] : []),
+                    { name: '━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
+                    { name: '💳 Pembayaran', value: `Silakan lakukan pembayaran sesuai nominal di atas.\n\n🟦 **GoPay**\n\`081393625527\``, inline: false },
+                    { name: '━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
+                    { 
+                        name: '📝 Catatan Pembayaran', 
+                        value: 
+                            '• Setelah pembayaran selesai, kirim bukti transfer langsung pada Ticket ini.\n' +
+                            '• Mohon tunggu hingga Staff memverifikasi pembayaran Anda secara manual.',
+                        inline: false 
+                    }
+                )
+                .setImage(`attachment://${qrFilename}`)
                 .setTimestamp();
         } else {
             ticketEmbed = new EmbedBuilder()
@@ -288,6 +339,7 @@ async function createTicketFromSession(interaction, session, client) {
                     }
                 )
                 .setColor('#ffaa00')
+                .setImage(`attachment://${qrFilename}`)
                 .setTimestamp();
         }
 
@@ -308,11 +360,9 @@ async function createTicketFromSession(interaction, session, client) {
         const adminMention = adminRoleId ? `<@&${adminRoleId}>` : '';
         await channel.send(`${interaction.user} | ${staffMention} ${adminMention}`);
         await channel.send({ 
-            embeds: [ticketEmbed], 
-            components: [row]
-        });
-        await channel.send({
             content: '📷 **QR Code Pembayaran:**',
+            embeds: [ticketEmbed], 
+            components: [row],
             files: [qrAttachment]
         });
 
@@ -352,8 +402,44 @@ module.exports = {
             return;
         }
 
+            // Centralized Order Handler Logic
+            // deferred = true means interaction.deferReply() was already called, use editReply
+            const handleOrderClick = async (type, deferred = false) => {
+                const setting = await getStoreSetting();
+                
+                // Product-specific status check
+                if (setting.products) {
+                    let productEnabled = true;
+                    
+                    if (type === 'vilog') {
+                        productEnabled = setting.products.robux_login.enabled;
+                    } else if (type === 'visend') {
+                        productEnabled = setting.products.robux_send.enabled;
+                    } else if (type === 'gig' || type === 'boost') { // boost is tied to gig status
+                        productEnabled = setting.products.gift_in_game.enabled;
+                    }
+                    
+                    if (!productEnabled) {
+                        const closedEmbed = new EmbedBuilder()
+                            .setTitle('🔴 Layanan Sedang Ditutup')
+                            .setDescription('Mohon maaf.\nLayanan ini sedang tidak menerima pesanan.\nSilakan coba kembali nanti.')
+                            .setColor('#ff0000');
+                        
+                        if (deferred) {
+                            await interaction.editReply({ embeds: [closedEmbed] });
+                        } else {
+                            await interaction.reply({ embeds: [closedEmbed], ephemeral: true });
+                        }
+                        return 'closed';
+                    }
+                }
+                
+                return 'proceed'; // Let the code proceed
+            };
+
         // Handle String Select Menus
         if (interaction.isStringSelectMenu()) {
+            if (interaction.replied || interaction.deferred) return;
             const { customId } = interaction;
 
             if (customId === 'select_mm_fee') {
@@ -466,6 +552,44 @@ module.exports = {
                 return await interaction.showModal(modal);
             }
 
+            if (customId === 'boost_fishit_select_package' || customId === 'boost_kalb_select_package') {
+                const check = await handleOrderClick('boost');
+                if (check !== 'proceed') return;
+                
+                const selectedValue = interaction.values[0];
+                const [packageLabel, price] = selectedValue.split(':');
+                const isFishit = customId === 'boost_fishit_select_package';
+
+                const modal = new ModalBuilder()
+                    .setCustomId(`boost_modal_order:${isFishit ? 'fishit' : 'kalb'}:${packageLabel}:${price}`)
+                    .setTitle(`Order Boost ${isFishit ? 'Fishit' : 'Kalb'}`);
+
+                const usernameInput = new TextInputBuilder()
+                    .setCustomId('roblox_username')
+                    .setLabel('Username Roblox')
+                    .setPlaceholder('Masukkan username Roblox Anda')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
+
+                const passwordInput = new TextInputBuilder()
+                    .setCustomId('roblox_password')
+                    .setLabel('Password Roblox (Opsional)')
+                    .setPlaceholder('Masukkan password jika perlu')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(false);
+
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(usernameInput),
+                    new ActionRowBuilder().addComponents(passwordInput)
+                );
+
+                try {
+                    return await interaction.showModal(modal);
+                } catch(e) {
+                    return; // Ignore race condition / already acknowledged
+                }
+            }
+
             if (customId === 'visend_select_package') {
                 const selectedValue = interaction.values[0];
 
@@ -503,7 +627,13 @@ module.exports = {
             }
 
             if (customId.startsWith('leaderboard_')) {
-                await interaction.deferUpdate();
+                if (interaction.replied || interaction.deferred) return;
+                try {
+                    await interaction.deferUpdate();
+                } catch (e) {
+                    if (e.code === 40060) return; // Ignore already acknowledged
+                    console.error(e);
+                }
                 const timeframe = customId.replace('leaderboard_', '');
                 try {
                     const { generateLeaderboardEmbed } = require('../services/leaderboardHelper');
@@ -717,7 +847,7 @@ module.exports = {
             }
 
             // Toggle Product Status Buttons
-            if (customId === 'toggle_robux_login' || customId === 'toggle_robux_send' || customId === 'toggle_gift_in_game') {
+            if (customId === 'toggle_robux_login' || customId === 'toggle_robux_send' || customId === 'toggle_gift_in_game' || customId === 'toggle_copay') {
                 const member = await interaction.guild.members.fetch(interaction.user.id);
                 const isOwner = interaction.guild.ownerId === interaction.user.id;
                 const isAdmin = member.permissions.has('Administrator');
@@ -733,7 +863,8 @@ module.exports = {
                     setting.products = {
                         robux_login: { enabled: true },
                         robux_send: { enabled: true },
-                        gift_in_game: { enabled: true }
+                        gift_in_game: { enabled: true },
+                        copay: { enabled: true }
                     };
                 }
 
@@ -743,6 +874,9 @@ module.exports = {
                     setting.products.robux_send.enabled = !setting.products.robux_send.enabled;
                 } else if (customId === 'toggle_gift_in_game') {
                     setting.products.gift_in_game.enabled = !setting.products.gift_in_game.enabled;
+                } else if (customId === 'toggle_copay') {
+                    if (!setting.products.copay) setting.products.copay = { enabled: true };
+                    setting.products.copay.enabled = !setting.products.copay.enabled;
                 }
 
                 setting.updatedBy = interaction.user.username;
@@ -818,40 +952,7 @@ module.exports = {
                 return interaction.update({ content: '❌ Pesanan dibatalkan.', embeds: [], components: [] });
             }
 
-            // Centralized Order Handler Logic
-            // deferred = true means interaction.deferReply() was already called, use editReply
-            const handleOrderClick = async (type, deferred = false) => {
-                const setting = await getStoreSetting();
-                
-                // Product-specific status check
-                if (setting.products) {
-                    let productEnabled = true;
-                    
-                    if (type === 'vilog') {
-                        productEnabled = setting.products.robux_login.enabled;
-                    } else if (type === 'visend') {
-                        productEnabled = setting.products.robux_send.enabled;
-                    } else if (type === 'gig') {
-                        productEnabled = setting.products.gift_in_game.enabled;
-                    }
-                    
-                    if (!productEnabled) {
-                        const closedEmbed = new EmbedBuilder()
-                            .setTitle('🔴 Layanan Sedang Ditutup')
-                            .setDescription('Mohon maaf.\nLayanan ini sedang tidak menerima pesanan.\nSilakan coba kembali nanti.')
-                            .setColor('#ff0000');
-                        
-                        if (deferred) {
-                            await interaction.editReply({ embeds: [closedEmbed] });
-                        } else {
-                            await interaction.reply({ embeds: [closedEmbed], ephemeral: true });
-                        }
-                        return 'closed';
-                    }
-                }
-                
-                return 'proceed'; // Let the code proceed
-            };
+
             // Static Verification Button
             if (customId === 'verify_btn') {
                 const modal = new ModalBuilder()
@@ -993,6 +1094,11 @@ module.exports = {
 
             // Button: 🛒 Order Payout (checks eligible role)
             if (customId === 'copay_order_now') {
+                const setting = await getStoreSetting();
+                if (setting.products && setting.products.copay && !setting.products.copay.enabled) {
+                    return interaction.reply({ content: '❌ Fitur Payout sedang ditutup sementara karena rawan terbanned. Silakan coba lagi nanti.', ephemeral: true });
+                }
+
                 const ELIGIBLE_ROLE_ID = '1534989509857509426';
                 const member = interaction.member;
                 const hasRole = member && member.roles && member.roles.cache.has(ELIGIBLE_ROLE_ID);
@@ -1089,7 +1195,11 @@ module.exports = {
 
             // Order Robux Via Send Button Trigger
             if (customId === 'visend_order_now') {
-                await interaction.deferReply({ ephemeral: true });
+                try {
+                    await interaction.deferReply({ ephemeral: true });
+                } catch(e) {
+                    return;
+                }
                 const check = await handleOrderClick('visend', true);
                 if (check !== 'proceed') return;
                 try {
@@ -1171,7 +1281,12 @@ module.exports = {
                     new ActionRowBuilder().addComponents(usernameInput)
                 );
 
-                return await interaction.showModal(modal);
+                try {
+                    return await interaction.showModal(modal);
+                } catch (e) {
+                    if (e.code === 10062 || e.code === 40060) return;
+                    console.error('Error showing GIG modal:', e);
+                }
             }
 
             if (customId === 'btn_mm_order') {
@@ -2183,8 +2298,9 @@ module.exports = {
                     voiceStatusService.updateAllVoiceStatuses(interaction.client);
                     const { AttachmentBuilder } = require('discord.js');
                     const path = require('path');
-                    const qrPath = path.join(__dirname, '../../Public/QR Payment.jpg');
-                    const qrAttachment = new AttachmentBuilder(qrPath, { name: 'qris.jpg' });
+                    const qrPath = path.join(__dirname, '../../Public/LyraPayment.jpg');
+                    const qrFilename = `qris_${Date.now()}.jpg`;
+                    const qrAttachment = new AttachmentBuilder(qrPath, { name: qrFilename });
 
                     let ticketEmbed;
                     if (isGIG) {
@@ -2220,7 +2336,7 @@ module.exports = {
                                     inline: false 
                                 }
                             )
-                            .setImage('attachment://qris.jpg')
+                            .setImage(`attachment://${qrFilename}`)
                             .setTimestamp();
                     } else {
                         ticketEmbed = new EmbedBuilder()
@@ -2254,7 +2370,7 @@ module.exports = {
                                     inline: false 
                                 }
                             )
-                            .setImage('attachment://qris.jpg')
+                            .setImage(`attachment://${qrFilename}`)
                             .setColor('#ffaa00')
                             .setTimestamp();
                     }
@@ -2393,8 +2509,9 @@ module.exports = {
                                     // Construct the new order field
                                     const productName = session.type === 'gig' ? 'Gift In Game' : (session.type === 'visend' ? 'Robux Via Send' : 'Robux Via Login');
                                     let packageLabel = session.isCustom ? 'Custom' : `${session.amount} Robux`;
+                                    const orderCount = pendingOrders.length;
                                     const newOrderField = {
-                                        name: `📦 Tambahan: ${productName}`,
+                                        name: `📦 Tambahan ke-${orderCount}: ${productName}`,
                                         value: `**Username:** \`${session.robloxUsername || '-'}\`\n**Paket:** \`${packageLabel}\`\n**Harga:** \`Rp ${session.price.toLocaleString('id-ID')}\``,
                                         inline: false
                                     };
@@ -2414,7 +2531,12 @@ module.exports = {
                             console.error('[BulkOrder] Error updating original embed', e);
                         }
 
-                        const { EmbedBuilder } = require('discord.js');
+                        const { EmbedBuilder, AttachmentBuilder } = require('discord.js');
+                        const path = require('path');
+                        const qrPath = path.join(__dirname, '../../Public/LyraPayment.jpg');
+                        const qrFilename = `qris_${Date.now()}.jpg`;
+                        const qrAttachment = new AttachmentBuilder(qrPath, { name: qrFilename });
+                        
                         const gigDetails = session.type === 'gig' ? `**Game / Map:** \`${session.gameLink || '-'}\`\n**Gamepass:** \`${session.gamepassName || '-'}\`\n` : '';
                         const bulkNotifyEmbed = new EmbedBuilder()
                             .setTitle('🛒 Pesanan Tambahan Diterima')
@@ -2425,13 +2547,37 @@ module.exports = {
                                 `**Tambahan Robux:** \`${session.amount.toLocaleString('id-ID')} Robux\`\n` +
                                 `**Tambahan Biaya:** \`Rp ${session.price.toLocaleString('id-ID')}\`\n\n` +
                                 `*(Total tagihan pada pesan utama tiket ini telah diperbarui secara otomatis.)*\n\n` +
-                                `**📝 Catatan Pembayaran:**\n` +
-                                `Jika Anda **sudah** membayar orderan sebelumnya, Anda hanya perlu mentransfer nominal **Tambahan Biaya** di atas.\n\n` +
-                                `Namun, jika Anda **belum** mentransfer orderan sebelumnya, silakan ikuti **Total Pembayaran terbaru** yang ada di informasi pesan utama di atas.` +
+                                `**📝 Info Pembayaran:**\n` +
+                                `Jika Anda **sudah** membayar orderan sebelumnya, Anda hanya perlu mentransfer nominal **Tambahan Biaya** di atas.\n` +
+                                `Namun, jika **belum**, silakan ikuti **Total Pembayaran terbaru** yang ada di informasi pesan utama di atas.` +
                                 warningText
                             )
-                            .setColor(warningText ? '#ffcc00' : '#00ff00');
-                        await channel.send({ embeds: [bulkNotifyEmbed] });
+                            .addFields(
+                                { name: '━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
+                                { name: '💳 Pembayaran QRIS', value: `Silakan scan QR Code di bawah ini.`, inline: false },
+                                { 
+                                    name: '📝 Syarat & Ketentuan (S&K)', 
+                                    value: 
+                                        '• Maksimal pembayaran melalui QRIS adalah Rp500.000 untuk setiap transaksi.\n' +
+                                        '• Untuk transaksi di atas Rp500.000, silakan lakukan pembayaran lebih dari satu kali, atau gunakan satu kali pembayaran dengan tambahan biaya QRIS sebesar 0,3%.\n' +
+                                        '• Apabila melakukan transfer ke GoPay menggunakan Bank atau E-Wallet selain GoPay, dikenakan biaya tambahan sebesar Rp1.000 sesuai ketentuan penyedia layanan.\n' +
+                                        '• Pastikan nominal pembayaran sesuai dengan tagihan.\n' +
+                                        '• Setelah pembayaran selesai, kirim bukti transfer langsung pada Ticket ini.',
+                                    inline: false 
+                                }
+                            )
+                            .setImage(`attachment://${qrFilename}`)
+                            .setColor(warningText ? '#ffcc00' : '#00ff00')
+                            .setTimestamp();
+                            
+                        await channel.send({ 
+                            embeds: [bulkNotifyEmbed],
+                            files: [qrAttachment]
+                        });
+                        
+                        // Send plain text format for easy copying on Android
+                        const plainTextFormat = `**Format Order Tambahan (Copas):**\n\`\`\`\nUsername: ${session.robloxUsername || '-'}\nPaket: ${session.amount} Robux\nHarga: Rp ${session.price.toLocaleString('id-ID')}\n\`\`\``;
+                        await channel.send({ content: plainTextFormat });
                     }
                     return btn.editReply({ content: `✅ Pesanan berhasil ditambahkan ke <#${activeTicket.ticketId}>. Silakan lanjutkan pembayaran di sana.`, embeds: [], components: [] });
                 }
@@ -2737,22 +2883,30 @@ module.exports = {
                 return interaction.editReply('✅ Terima kasih! Review Anda telah berhasil dikirim.');
             }
 
-            if (customId.startsWith('vilog_modal_order:') || customId.startsWith('visend_modal_order:') || customId === 'visend_modal_custom') {
+            if (customId.startsWith('vilog_modal_order:') || customId.startsWith('visend_modal_order:') || customId === 'visend_modal_custom' || customId.startsWith('boost_modal_order:')) {
                 const isVisend = customId.startsWith('visend_modal_order:') || customId === 'visend_modal_custom';
                 const isCustom = customId === 'visend_modal_custom';
+                const isBoost = customId.startsWith('boost_modal_order:');
 
-                console.log(`[DEBUG] Received modal submit with customId: ${customId}. isVisend: ${isVisend}`);
+                console.log(`[DEBUG] Received modal submit with customId: ${customId}. isVisend: ${isVisend}, isBoost: ${isBoost}`);
 
                 try {
                     await interaction.deferReply({ ephemeral: true });
                 } catch(e) {
                     console.error('[DEBUG] deferReply failed:', e);
+                    return; // Stop execution if it's already acknowledged
                 }
 
                 try {
-                    let amount, price;
+                    let amount, price, boostType, packageLabel;
                     
-                    if (isCustom) {
+                    if (isBoost) {
+                        const [, bType, pLabel, pPrice] = customId.split(':');
+                        boostType = bType;
+                        packageLabel = pLabel;
+                        price = parseInt(pPrice);
+                        amount = packageLabel;
+                    } else if (isCustom) {
                         const amountStr = interaction.fields.getTextInputValue('robux_amount');
                         if (!/^\d+$/.test(amountStr) || parseInt(amountStr) <= 0) {
                             return interaction.editReply('❌ Jumlah Robux tidak valid. Harap masukkan angka saja (tanpa titik/koma) dan lebih dari 0.');
@@ -2767,7 +2921,12 @@ module.exports = {
                     }
 
                     const robloxUsername = interaction.fields.getTextInputValue('roblox_username');
-                    const robloxPassword = isVisend ? '' : interaction.fields.getTextInputValue('roblox_password');
+                    let robloxPassword = '';
+                    if (isBoost) {
+                        robloxPassword = interaction.fields.getTextInputValue('roblox_password') || '';
+                    } else {
+                        robloxPassword = isVisend ? '' : interaction.fields.getTextInputValue('roblox_password');
+                    }
 
                     // Validasi Roblox Username
                     const userInfo = await getRobloxUserInfo(robloxUsername);
@@ -2777,8 +2936,8 @@ module.exports = {
 
                     // Build Session
                     const session = {
-                        type: isVisend ? 'visend' : 'vilog',
-                        isCustom, amount, price, 
+                        type: isBoost ? `boost_${boostType}` : (isVisend ? 'visend' : 'vilog'),
+                        isCustom, amount, price, packageLabel,
                         robloxUsername: userInfo.username, 
                         robloxPassword, 
                         robloxId: userInfo.id,
@@ -2795,9 +2954,8 @@ module.exports = {
                             { name: 'Display Name', value: `\`${userInfo.displayName}\``, inline: true },
                             { name: 'User ID', value: `\`${userInfo.id}\``, inline: true },
                             { name: '━━━━━━━━━━━━━━━━━━━━━━━━━━━━', value: '📦 **Informasi Pesanan**', inline: false },
-                            { name: 'Produk', value: `\`${isVisend ? 'Robux Via Send' : 'Robux Via Login'}\``, inline: true },
-                            { name: 'Paket', value: `\`${isCustom ? 'Custom' : amount + ' Robux'}\``, inline: true },
-                            { name: 'Jumlah Robux', value: `\`${amount}\``, inline: true },
+                            { name: 'Produk', value: `\`${isBoost ? (boostType === 'fishit' ? 'Boost Fishit' : 'Boost Kalb') : (isVisend ? 'Robux Via Send' : 'Robux Via Login')}\``, inline: true },
+                            { name: 'Paket', value: `\`${isBoost ? packageLabel : (isCustom ? 'Custom' : amount + ' Robux')}\``, inline: true },
                             { name: 'Total Pembayaran', value: `\`Rp${price.toLocaleString('id-ID')}\``, inline: true },
                             { name: '━━━━━━━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false }
                         )
@@ -2866,7 +3024,13 @@ module.exports = {
 
             // 2. Gift In Game (GIG) Modal Order Submission
             if (customId === 'gig_modal_order') {
-                await interaction.deferReply({ ephemeral: true });
+                if (interaction.replied || interaction.deferred) return;
+                try {
+                    await interaction.deferReply({ ephemeral: true });
+                } catch (e) {
+                    if (e.code === 40060 || e.code === 10062) return;
+                    console.error('Error deferring GIG modal:', e);
+                }
 
                 try {
                     const gameLink = interaction.fields.getTextInputValue('gig_game_link');
