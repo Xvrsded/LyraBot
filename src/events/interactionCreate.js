@@ -175,7 +175,7 @@ async function createTicketFromSession(interaction, session, client) {
             .setTitle('🔍 Konfirmasi Pemesanan Robux')
             .setDescription(`Halo <@${interaction.user.id}>, silakan selesaikan pembayaran ke QRIS di bawah ini untuk melanjutkan pesanan Anda.\n\n━━━━━━━━━━━━━━━━━━\n\n👤 **Informasi Akun**\n• **Username:** \`${session.robloxUsername}\`\n• **Display Name:** \`${session.displayName}\`\n• **User ID:** \`${session.robloxId}\`\n\n📦 **Informasi Pesanan**\n• **Produk:** \`${isVisend ? 'Robux Via Send' : 'Robux Via Login'}\`\n• **Jumlah Robux:** \`${session.amount} Robux\`\n• **Total Harga:** \`Rp${session.price.toLocaleString('id-ID')}\`\n\n━━━━━━━━━━━━━━━━━━\n⚠️ *Harap pastikan semua data di atas sudah benar sebelum melakukan pembayaran.*`)
             .setColor('#2ecc71')
-            .setImage(`attachment://${qrFilename}`)
+
             .setFooter({ text: 'Sistem Tiket Otomatis' })
             .setTimestamp();
         
@@ -212,7 +212,7 @@ async function createTicketFromSession(interaction, session, client) {
                         inline: false 
                     }
                 )
-                .setImage(`attachment://${qrFilename}`)
+    
                 .setTimestamp();
         } else if (isMM) {
             ticketEmbed = new EmbedBuilder()
@@ -246,7 +246,7 @@ async function createTicketFromSession(interaction, session, client) {
                         inline: false 
                     }
                 )
-                .setImage(`attachment://${qrFilename}`)
+    
                 .setTimestamp();
         } else if (isLimited) {
             ticketEmbed = new EmbedBuilder()
@@ -275,7 +275,7 @@ async function createTicketFromSession(interaction, session, client) {
                         inline: false 
                     }
                 )
-                .setImage(`attachment://${qrFilename}`)
+    
                 .setTimestamp();
         } else if (isBoost) {
             ticketEmbed = new EmbedBuilder()
@@ -304,7 +304,7 @@ async function createTicketFromSession(interaction, session, client) {
                         inline: false 
                     }
                 )
-                .setImage(`attachment://${qrFilename}`)
+    
                 .setTimestamp();
         } else {
             ticketEmbed = new EmbedBuilder()
@@ -339,7 +339,7 @@ async function createTicketFromSession(interaction, session, client) {
                     }
                 )
                 .setColor('#ffaa00')
-                .setImage(`attachment://${qrFilename}`)
+    
                 .setTimestamp();
         }
 
@@ -360,9 +360,11 @@ async function createTicketFromSession(interaction, session, client) {
         const adminMention = adminRoleId ? `<@&${adminRoleId}>` : '';
         await channel.send(`${interaction.user} | ${staffMention} ${adminMention}`);
         await channel.send({ 
-            content: '📷 **QR Code Pembayaran:**',
             embeds: [ticketEmbed], 
-            components: [row],
+            components: [row]
+        });
+        await channel.send({
+            content: '📷 **QR Code Pembayaran:**',
             files: [qrAttachment]
         });
 
@@ -2336,7 +2338,7 @@ module.exports = {
                                     inline: false 
                                 }
                             )
-                            .setImage(`attachment://${qrFilename}`)
+
                             .setTimestamp();
                     } else {
                         ticketEmbed = new EmbedBuilder()
@@ -2370,7 +2372,7 @@ module.exports = {
                                     inline: false 
                                 }
                             )
-                            .setImage(`attachment://${qrFilename}`)
+
                             .setColor('#ffaa00')
                             .setTimestamp();
                     }
@@ -2392,7 +2394,10 @@ module.exports = {
                     await channel.send(`${interaction.user} | ${staffMention} ${adminMention}`);
                     await channel.send({ 
                         embeds: [ticketEmbed], 
-                        components: [row],
+                        components: [row]
+                    });
+                    await channel.send({
+                        content: '📷 **QR Code Pembayaran:**',
                         files: [qrAttachment]
                     });
 
@@ -2566,12 +2571,15 @@ module.exports = {
                                     inline: false 
                                 }
                             )
-                            .setImage(`attachment://${qrFilename}`)
+
                             .setColor(warningText ? '#ffcc00' : '#00ff00')
                             .setTimestamp();
                             
                         await channel.send({ 
-                            embeds: [bulkNotifyEmbed],
+                            embeds: [bulkNotifyEmbed]
+                        });
+                        await channel.send({
+                            content: '📷 **QR Code Pembayaran:**',
                             files: [qrAttachment]
                         });
                         
