@@ -1690,7 +1690,20 @@ module.exports = {
                             .setColor('#2ecc71')
                             .setTimestamp();
 
-                        await logChannel.send({ embeds: [logEmbed] }).catch(() => {});
+                        const sentLogMsg = await logChannel.send({ embeds: [logEmbed] }).catch(() => null);
+                        
+                        // Update Leaderboard
+                        try {
+                            const leaderboardService = require('../services/leaderboardService');
+                            await leaderboardService.addTransaction(order.userId, order.price, sentLogMsg ? sentLogMsg.id : null, sentLogMsg ? sentLogMsg.createdTimestamp : null);
+                            await leaderboardService.updateLeaderboard(client);
+                            await leaderboardService.updateCustomerTier(client, order.userId);
+                            
+                            const { triggerLeaderboardUpdate } = require('../scripts/update_leaderboard');
+                            triggerLeaderboardUpdate();
+                        } catch (err) {
+                            logger.error('[InteractionCreate] Error updating leaderboard:', err);
+                        }
                     }
 
                     // Send Customer DM
@@ -1905,14 +1918,17 @@ module.exports = {
                                 .setColor('#2ecc71')
                                 .setTimestamp();
 
-                            await logChannel.send({ embeds: [logEmbed] }).catch(() => {});
+                            const sentLogMsg = await logChannel.send({ embeds: [logEmbed] }).catch(() => null);
                             
                             // Update Leaderboard
                             try {
                                 const leaderboardService = require('../services/leaderboardService');
-                                await leaderboardService.addTransaction(order.userId, order.price);
+                                await leaderboardService.addTransaction(order.userId, order.price, sentLogMsg ? sentLogMsg.id : null, sentLogMsg ? sentLogMsg.createdTimestamp : null);
                                 await leaderboardService.updateLeaderboard(client);
                                 await leaderboardService.updateCustomerTier(client, order.userId);
+                                
+                                const { triggerLeaderboardUpdate } = require('../scripts/update_leaderboard');
+                                triggerLeaderboardUpdate();
                             } catch (err) {
                                 logger.error('[InteractionCreate] Error updating leaderboard:', err);
                             }
