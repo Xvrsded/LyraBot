@@ -17,13 +17,6 @@ class DashboardService {
         try {
             logger.info('[DashboardService] Running startup auto-check...');
             
-            // Clean up old master admin panel config
-            const Config = require('../models/Config');
-            await Config.deleteOne({ key: 'admin_panel_channel_id' }).catch(() => {});
-            
-            const mongoose = require('mongoose');
-            await mongoose.connection.db.dropCollection('adminpanelstates').catch(() => {});
-            
             // 1. Fetch channel
             const channel = await client.channels.fetch(this.CHANNEL_ID).catch(() => null);
             if (!channel) {

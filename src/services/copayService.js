@@ -18,23 +18,21 @@ const ELIGIBLE_ROLE_ID = '1534989509857509426';
 
 async function seedCopayPackages() {
     try {
-        const copayCount = await RobuxPackage.countDocuments({ type: 'copay' });
-        if (copayCount === 0) {
-            const defaults = [
-                { type: 'copay', amount: 100, price: 12500, sortOrder: 1 },
-                { type: 'copay', amount: 200, price: 25000, sortOrder: 2 },
-                { type: 'copay', amount: 300, price: 37500, sortOrder: 3 },
-                { type: 'copay', amount: 400, price: 50000, sortOrder: 4 },
-                { type: 'copay', amount: 500, price: 62500, sortOrder: 5 },
-                { type: 'copay', amount: 600, price: 75000, sortOrder: 6 },
-                { type: 'copay', amount: 700, price: 87500, sortOrder: 7 },
-                { type: 'copay', amount: 800, price: 100000, sortOrder: 8 },
-                { type: 'copay', amount: 900, price: 112500, sortOrder: 9 },
-                { type: 'copay', amount: 1000, price: 125000, sortOrder: 10 }
-            ];
-            await RobuxPackage.insertMany(defaults);
-            logger.info('[Copay Service] Seeded default Community Payout packages.');
-        }
+        const defaults = [
+            { type: 'copay', amount: 500, price: 65000, sortOrder: 1 },
+            { type: 'copay', amount: 1000, price: 130000, sortOrder: 2 },
+            { type: 'copay', amount: 1500, price: 195000, sortOrder: 3 },
+            { type: 'copay', amount: 2000, price: 260000, sortOrder: 4 },
+            { type: 'copay', amount: 2500, price: 325000, sortOrder: 5 },
+            { type: 'copay', amount: 5000, price: 650000, sortOrder: 6 }
+        ];
+        const targetAmounts = defaults.map(pkg => pkg.amount);
+        await Promise.all(defaults.map(pkg => RobuxPackage.findOneAndUpdate(
+            { type: 'copay', amount: pkg.amount }, pkg,
+            { upsert: true, new: true, setDefaultsOnInsert: true }
+        )));
+        await RobuxPackage.deleteMany({ type: 'copay', amount: { $nin: targetAmounts } });
+        logger.info('[Copay Service] Community Payout packages synced.');
     } catch (err) {
         logger.error('[Copay Service] Error seeding packages:', err);
     }
@@ -42,16 +40,12 @@ async function seedCopayPackages() {
 
 function buildCopayEmbed() {
     const priceList =
-        '100 Robux  = Rp12.500\n' +
-        '200 Robux  = Rp25.000\n' +
-        '300 Robux  = Rp37.500\n' +
-        '400 Robux  = Rp50.000\n' +
-        '500 Robux  = Rp62.500\n' +
-        '600 Robux  = Rp75.000\n' +
-        '700 Robux  = Rp87.500\n' +
-        '800 Robux  = Rp100.000\n' +
-        '900 Robux  = Rp112.500\n' +
-        '1000 Robux = Rp125.000';
+        '500⏣     = Rp65.000\n' +
+        '1.000⏣   = Rp130.000\n' +
+        '1.500⏣   = Rp195.000\n' +
+        '2.000⏣   = Rp260.000\n' +
+        '2.500⏣   = Rp325.000\n' +
+        '5.000⏣   = Rp650.000';
 
     const embed = new EmbedBuilder()
         .setTitle('💸 ROBUX COMMUNITY PAYOUT')

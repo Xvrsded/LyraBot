@@ -9,15 +9,17 @@ const VILOG_PRICE_CATALOG = [
     { amount: 160, price: 32000, sortOrder: 2 },
     { amount: 240, price: 48000, sortOrder: 3 },
     { amount: 320, price: 64000, sortOrder: 4 },
-    { amount: 500, price: 74000, sortOrder: 5 },
-    { amount: 1000, price: 148000, sortOrder: 6 },
-    { amount: 1500, price: 222000, sortOrder: 7 },
-    { amount: 2000, price: 296000, sortOrder: 8 },
-    { amount: 2500, price: 370000, sortOrder: 9 },
-    { amount: 3000, price: 444000, sortOrder: 10 },
-    { amount: 5000, price: 740000, sortOrder: 11 },
-    { amount: 10000, price: 1480000, sortOrder: 12 }
+    { amount: 500, price: 75000, sortOrder: 5 },
+    { amount: 1000, price: 150000, sortOrder: 6 },
+    { amount: 1500, price: 225000, sortOrder: 7 },
+    { amount: 2000, price: 300000, sortOrder: 8 },
+    { amount: 2500, price: 375000, sortOrder: 9 },
+    { amount: 3000, price: 450000, sortOrder: 10 },
+    { amount: 5000, price: 750000, sortOrder: 11 },
+    { amount: 10000, price: 1500000, sortOrder: 12 }
 ];
+
+const ROBLOX_PLUS_PRICE = 110000;
 
 const VISEND_PRICE_CATALOG = [
     { amount: 100, price: 16000, sortOrder: 1 },
@@ -115,6 +117,7 @@ async function syncVilogPanel(client) {
                 priceListText += `${paddedAmount} = Rp ${pkg.price.toLocaleString('id-ID')}\n`;
             });
         }
+        priceListText += `ROBLOX PLUS = Rp ${ROBLOX_PLUS_PRICE.toLocaleString('id-ID')}\n`;
         priceListText += '```';
 
         const brandingName = await settingsService.get('branding_name', 'LyraBlox');

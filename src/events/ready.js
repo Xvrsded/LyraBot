@@ -140,7 +140,19 @@ module.exports = {
 
         setTimeout(() => {
             const dashboardService = require('../services/dashboardService');
-            dashboardService.syncDashboard(client);
+            let dashboardSyncInProgress = false;
+            const syncDashboard = async () => {
+                if (dashboardSyncInProgress) return;
+                dashboardSyncInProgress = true;
+                try {
+                    await dashboardService.syncDashboard(client);
+                } finally {
+                    dashboardSyncInProgress = false;
+                }
+            };
+
+            syncDashboard();
+            setInterval(syncDashboard, 60 * 1000);
             
             const leaderboardService = require('../services/leaderboardService');
             leaderboardService.syncTransactionLogs(client).then(() => {

@@ -11,6 +11,21 @@ const noblox = require('noblox.js');
 const { getRobloxUserInfo } = require('../services/robloxService');
 const { getStoreSetting, buildDashboardMessage } = require('../services/storeService');
 const activeClosures = new Set();
+const fs = require('fs');
+const path = require('path');
+
+function createQrAttachment() {
+    const candidates = ['LyraPayment.png', 'LyraPayment.jpg'];
+    const qrPath = candidates
+        .map(filename => path.join(__dirname, '../../Public', filename))
+        .find(candidate => fs.existsSync(candidate));
+
+    if (!qrPath) throw new Error('QR payment asset tidak ditemukan di folder Public.');
+    const { AttachmentBuilder } = require('discord.js');
+    return new AttachmentBuilder(qrPath, {
+        name: `qris_${Date.now()}${path.extname(qrPath)}`
+    });
+}
 
 function buildReviewPanel(orderId) {
     const row = new ActionRowBuilder().addComponents(
@@ -126,7 +141,6 @@ async function createTicketFromSession(interaction, session, client) {
                 notes: session.notes
             } : (isBoost ? {
                 username: session.robloxUsername,
-                password: session.robloxPassword,
                 package: session.packageLabel,
                 price: session.price
             } : {
@@ -165,11 +179,7 @@ async function createTicketFromSession(interaction, session, client) {
         // Update Voice Status
         const voiceStatusService = require('../services/voiceStatusService');
         voiceStatusService.updateAllVoiceStatuses(interaction.client);
-        const { AttachmentBuilder } = require('discord.js');
-        const path = require('path');
-        const qrPath = path.join(__dirname, '../../Public/LyraPayment.jpg');
-        const qrFilename = `qris_${Date.now()}.jpg`;
-        const qrAttachment = new AttachmentBuilder(qrPath, { name: qrFilename });
+        const qrAttachment = createQrAttachment();
 
         let ticketEmbed = new EmbedBuilder()
             .setTitle('🔍 Konfirmasi Pemesanan Robux')
@@ -292,7 +302,6 @@ async function createTicketFromSession(interaction, session, client) {
                     { name: '💰 Harga', value: `\`Rp ${session.price.toLocaleString('id-ID')}\``, inline: true },
                     { name: '👤 Username Roblox', value: `\`${session.robloxUsername}\``, inline: true },
                     { name: '📌 Status', value: '🟡 Pending Payment', inline: true },
-                    ...(session.robloxPassword ? [{ name: '🔑 Password', value: `||${session.robloxPassword}||`, inline: true }] : []),
                     { name: '━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
                     { name: '💳 Pembayaran', value: `Silakan lakukan pembayaran sesuai nominal di atas.\n\n🟦 **GoPay**\n\`081393625527\``, inline: false },
                     { name: '━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
@@ -573,16 +582,8 @@ module.exports = {
                     .setStyle(TextInputStyle.Short)
                     .setRequired(true);
 
-                const passwordInput = new TextInputBuilder()
-                    .setCustomId('roblox_password')
-                    .setLabel('Password Roblox (Opsional)')
-                    .setPlaceholder('Masukkan password jika perlu')
-                    .setStyle(TextInputStyle.Short)
-                    .setRequired(false);
-
                 modal.addComponents(
-                    new ActionRowBuilder().addComponents(usernameInput),
-                    new ActionRowBuilder().addComponents(passwordInput)
+                    new ActionRowBuilder().addComponents(usernameInput)
                 );
 
                 try {
@@ -652,7 +653,7 @@ module.exports = {
 
             // Dashboard Management Menus
             if (customId === 'dashboard_menu_inventory') {
-                const member = await interaction.guild.members.fetch(interaction.user.id);
+                const member = interaction.member || await interaction.guild.members.fetch(interaction.user.id);
                 if (interaction.guild.ownerId !== interaction.user.id && !member.permissions.has('Administrator')) {
                     return interaction.reply({ content: '❌ Anda tidak memiliki izin.', ephemeral: true });
                 }
@@ -687,7 +688,7 @@ module.exports = {
             }
 
             if (customId === 'dashboard_menu_product') {
-                const member = await interaction.guild.members.fetch(interaction.user.id);
+                const member = interaction.member || await interaction.guild.members.fetch(interaction.user.id);
                 if (interaction.guild.ownerId !== interaction.user.id && !member.permissions.has('Administrator')) {
                     return interaction.reply({ content: '❌ Anda tidak memiliki izin.', ephemeral: true });
                 }
@@ -706,7 +707,7 @@ module.exports = {
             }
 
             if (customId === 'dashboard_menu_gig') {
-                const member = await interaction.guild.members.fetch(interaction.user.id);
+                const member = interaction.member || await interaction.guild.members.fetch(interaction.user.id);
                 if (interaction.guild.ownerId !== interaction.user.id && !member.permissions.has('Administrator')) {
                     return interaction.reply({ content: '❌ Anda tidak memiliki izin.', ephemeral: true });
                 }
@@ -731,7 +732,7 @@ module.exports = {
             }
 
             if (customId === 'dashboard_limited_menu') {
-                const member = await interaction.guild.members.fetch(interaction.user.id);
+                const member = interaction.member || await interaction.guild.members.fetch(interaction.user.id);
                 if (interaction.guild.ownerId !== interaction.user.id && !member.permissions.has('Administrator')) {
                     return interaction.reply({ content: '❌ Anda tidak memiliki izin.', ephemeral: true });
                 }
@@ -767,8 +768,8 @@ module.exports = {
                 const newStatus = config.products?.limited_item?.status === 'OPEN' ? 'CLOSE' : 'OPEN';
                 await configService.toggleLimitedStatus(newStatus, interaction.user.username, interaction.user.id);
                 
-                const { buildDashboardMessage } = require('../services/storeService');
-                await buildDashboardMessage(interaction.client);
+                const dashboardService = require('../services/dashboardService');
+                await dashboardService.syncDashboard(interaction.client);
                 const voiceStatusService = require('../services/voiceStatusService');
                 voiceStatusService.updateAllVoiceStatuses(interaction.client);
                 
@@ -776,7 +777,7 @@ module.exports = {
             }
 
             if (customId === 'dashboard_menu_mm') {
-                const member = await interaction.guild.members.fetch(interaction.user.id);
+                const member = interaction.member || await interaction.guild.members.fetch(interaction.user.id);
                 if (interaction.guild.ownerId !== interaction.user.id && !member.permissions.has('Administrator')) {
                     return interaction.reply({ content: '❌ Anda tidak memiliki izin.', ephemeral: true });
                 }
@@ -814,8 +815,8 @@ module.exports = {
                 await configService.toggleMMStatus(newStatus, interaction.user.username, interaction.user.id);
                 
                 // Refresh dashboard message
-                const { buildDashboardMessage } = require('../services/storeService');
-                const newDashboard = await buildDashboardMessage(interaction.client);
+                const dashboardService = require('../services/dashboardService');
+                await dashboardService.syncDashboard(interaction.client);
                 const voiceStatusService = require('../services/voiceStatusService');
                 voiceStatusService.updateAllVoiceStatuses(interaction.client);
                 
@@ -931,8 +932,12 @@ module.exports = {
                     
                     // Sync Panels
                     const robuxService = require('../services/robuxService');
+                    if (robuxService.seedRobuxPackages) await robuxService.seedRobuxPackages();
                     if (robuxService.syncVisendPanel) await robuxService.syncVisendPanel(interaction.client);
                     if (robuxService.syncVilogPanel) await robuxService.syncVilogPanel(interaction.client);
+                    if (robuxService.syncGigPanel) await robuxService.syncGigPanel(interaction.client);
+                    const copayService = require('../services/copayService');
+                    if (copayService.syncCopayPanel) await copayService.syncCopayPanel(interaction.client);
                     
                     // Sync Dashboard itself
                     const dashboardService = require('../services/dashboardService');
@@ -2296,7 +2301,7 @@ module.exports = {
                             rate: session.rate
                         } : {
                             username: session.robloxUsername,
-                            password: session.robloxPassword,
+                            ...(session.type.startsWith('boost_') ? {} : { password: session.robloxPassword }),
                             amount: session.amount,
                             price: session.price,
                             package: session.isCustom ? 'Custom' : undefined
@@ -2314,11 +2319,7 @@ module.exports = {
                     // Update Voice Status
                     const voiceStatusService = require('../services/voiceStatusService');
                     voiceStatusService.updateAllVoiceStatuses(interaction.client);
-                    const { AttachmentBuilder } = require('discord.js');
-                    const path = require('path');
-                    const qrPath = path.join(__dirname, '../../Public/LyraPayment.jpg');
-                    const qrFilename = `qris_${Date.now()}.jpg`;
-                    const qrAttachment = new AttachmentBuilder(qrPath, { name: qrFilename });
+                    const qrAttachment = createQrAttachment();
 
                     let ticketEmbed;
                     if (isGIG) {
@@ -2371,7 +2372,7 @@ module.exports = {
                                 ...(session.isCustom ? [{ name: '💎 Jumlah Robux', value: `\`${session.amount.toLocaleString('id-ID')} Robux\``, inline: true }] : []),
                                 { name: '💰 Total', value: `\`Rp ${session.price.toLocaleString('id-ID')}\``, inline: true },
                                 { name: '👤 Username', value: `\`${session.robloxUsername}\``, inline: true },
-                                ...(isVisend ? [] : [{ name: '🔑 Password', value: `||${session.robloxPassword}||`, inline: true }]),
+                                ...((isVisend || session.type.startsWith('boost_')) ? [] : [{ name: '🔑 Password', value: `||${session.robloxPassword}||`, inline: true }]),
                                 { name: '📌 Status', value: '🟡 Pending', inline: true },
                                 { name: '━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
                                 { name: '💳 Pembayaran', value: `Silakan lakukan pembayaran sesuai dengan total yang tertera di atas.\n\n🟦 **GoPay**\n\`081393625527\``, inline: false },
@@ -2552,11 +2553,7 @@ module.exports = {
                             console.error('[BulkOrder] Error updating original embed', e);
                         }
 
-                        const { EmbedBuilder, AttachmentBuilder } = require('discord.js');
-                        const path = require('path');
-                        const qrPath = path.join(__dirname, '../../Public/LyraPayment.jpg');
-                        const qrFilename = `qris_${Date.now()}.jpg`;
-                        const qrAttachment = new AttachmentBuilder(qrPath, { name: qrFilename });
+                        const qrAttachment = createQrAttachment();
                         
                         const gigDetails = session.type === 'gig' ? `**Game / Map:** \`${session.gameLink || '-'}\`\n**Gamepass:** \`${session.gamepassName || '-'}\`\n` : '';
                         const bulkNotifyEmbed = new EmbedBuilder()
@@ -2733,6 +2730,7 @@ module.exports = {
                     filter: i => i.user.id === interaction.user.id,
                     time: 300000 // 5 minutes
                 });
+                let confirmationInProgress = false;
 
                 collector.on('collect', async i => {
                     await i.deferUpdate();
@@ -2741,6 +2739,8 @@ module.exports = {
                         return i.editReply({ content: '❌ Konfirmasi dibatalkan. Silakan ulangi proses pemesanan.', embeds: [], components: [] });
                     }
                     if (i.customId === 'confirm_order') {
+                        if (confirmationInProgress) return;
+                        confirmationInProgress = true;
                         collector.stop('confirmed');
                         return await createTicketFromSession(i, session, i.client);
                     }
@@ -2808,10 +2808,10 @@ module.exports = {
                 const packageId = customId.split(':')[1];
                 const robloxUsername = interaction.fields.getTextInputValue('roblox_username');
 
-                const pkg = await RobuxPackage.findById(packageId);
-                if (!pkg) return interaction.reply({ content: 'Paket tidak ditemukan.', ephemeral: true });
-
                 await interaction.deferReply({ ephemeral: true });
+                const pkg = await RobuxPackage.findById(packageId);
+                if (!pkg) return interaction.editReply({ content: 'Paket tidak ditemukan.' });
+
                 try {
                     const session = {
                         type: 'copay',
@@ -2945,12 +2945,9 @@ module.exports = {
                     }
 
                     const robloxUsername = interaction.fields.getTextInputValue('roblox_username');
-                    let robloxPassword = '';
-                    if (isBoost) {
-                        robloxPassword = interaction.fields.getTextInputValue('roblox_password') || '';
-                    } else {
-                        robloxPassword = isVisend ? '' : interaction.fields.getTextInputValue('roblox_password');
-                    }
+                    const robloxPassword = isBoost || isVisend
+                        ? ''
+                        : interaction.fields.getTextInputValue('roblox_password');
 
                     // Validasi Roblox Username
                     const userInfo = await getRobloxUserInfo(robloxUsername);
@@ -2999,6 +2996,7 @@ module.exports = {
                         filter: i => i.user.id === interaction.user.id,
                         time: 300000 // 5 minutes
                     });
+                    let confirmationInProgress = false;
 
                     collector.on('collect', async i => {
                         await i.deferUpdate();
@@ -3008,6 +3006,8 @@ module.exports = {
                         }
                         
                         if (i.customId === 'confirm_order') {
+                            if (confirmationInProgress) return;
+                            confirmationInProgress = true;
                             collector.stop('confirmed');
                             const productName = session.type === 'gig' ? 'Gift In Game' : (session.type === 'visend' ? 'Robux Via Send' : 'Robux Via Login');
                             const activeTicket = await Ticket.findOne({ ownerId: interaction.user.id, productName, status: 'open' });
