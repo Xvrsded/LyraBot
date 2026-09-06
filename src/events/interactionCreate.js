@@ -1104,9 +1104,10 @@ module.exports = {
 
             // Button: 🛒 Order Payout (checks eligible role)
             if (customId === 'copay_order_now') {
+                await interaction.deferReply({ ephemeral: true });
                 const setting = await getStoreSetting();
                 if (setting.products && setting.products.copay && !setting.products.copay.enabled) {
-                    return interaction.reply({ content: '❌ Fitur Payout sedang ditutup sementara karena rawan terbanned. Silakan coba lagi nanti.', ephemeral: true });
+                    return interaction.editReply({ content: '❌ Fitur Payout sedang ditutup sementara karena rawan terbanned. Silakan coba lagi nanti.' });
                 }
 
                 const ELIGIBLE_ROLE_ID = '1534989509857509426';
@@ -1122,13 +1123,13 @@ module.exports = {
                             '━━━━━━━━━━━━━━━━━━'
                         )
                         .setColor('#e74c3c');
-                    return interaction.reply({ embeds: [embed], ephemeral: true });
+                    return interaction.editReply({ embeds: [embed] });
                 }
 
                 const configService = require('../services/configService');
                 const packages = await configService.getProductPackages('copay');
                 if (packages.length === 0) {
-                    return interaction.reply({ content: '❌ Paket Robux (Copay) saat ini sedang kosong.', ephemeral: true });
+                    return interaction.editReply({ content: '❌ Paket Robux (Copay) saat ini sedang kosong.' });
                 }
 
                 const { StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
@@ -1146,7 +1147,7 @@ module.exports = {
                 });
 
                 const row = new ActionRowBuilder().addComponents(selectMenu);
-                return interaction.reply({ content: 'Silakan pilih paket Community Payout (14 Hari) yang ingin Anda beli:', components: [row], ephemeral: true });
+                return interaction.editReply({ content: 'Silakan pilih paket Community Payout (14 Hari) yang ingin Anda beli:', components: [row] });
             }
 
             // Select Menu: copay_select_package
