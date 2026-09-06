@@ -623,6 +623,24 @@ module.exports = {
 
                 return await interaction.showModal(modal);
             }
+
+            if (customId === 'copay_select_package') {
+                const [packageId, amount, price] = interaction.values[0].split(':');
+
+                const modal = new ModalBuilder()
+                    .setCustomId(`copay_modal_order:${packageId}:${amount}:${price}`)
+                    .setTitle('Konfirmasi Pesanan Community Payout');
+
+                const robloxUsernameInput = new TextInputBuilder()
+                    .setCustomId('roblox_username')
+                    .setLabel('Username Roblox Tujuan')
+                    .setPlaceholder('Masukkan Username Roblox...')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
+
+                modal.addComponents(new ActionRowBuilder().addComponents(robloxUsernameInput));
+                return await interaction.showModal(modal);
+            }
         }
 
         if (interaction.isButton()) {
@@ -1149,26 +1167,6 @@ module.exports = {
                 const row = new ActionRowBuilder().addComponents(selectMenu);
                 return interaction.editReply({ content: 'Silakan pilih paket Community Payout (14 Hari) yang ingin Anda beli:', components: [row] });
             }
-
-            // Select Menu: copay_select_package
-            if (customId === 'copay_select_package') {
-                const [packageId, amount, price] = interaction.values[0].split(':');
-
-                const modal = new ModalBuilder()
-                    .setCustomId(`copay_modal_order:${packageId}:${amount}:${price}`)
-                    .setTitle('Konfirmasi Pesanan Community Payout (14 Hari)');
-                
-                const robloxUsernameInput = new TextInputBuilder()
-                    .setCustomId('roblox_username')
-                    .setLabel('Username Roblox Tujuan')
-                    .setPlaceholder('Masukkan Username Roblox...')
-                    .setStyle(TextInputStyle.Short)
-                    .setRequired(true);
-
-                modal.addComponents(new ActionRowBuilder().addComponents(robloxUsernameInput));
-                return await interaction.showModal(modal);
-            }
-            // ==========================================
 
             if (customId === 'vilog_order_now') {
                 await interaction.deferReply({ ephemeral: true });
