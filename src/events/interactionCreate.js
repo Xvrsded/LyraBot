@@ -2809,9 +2809,9 @@ module.exports = {
             // Modal: copay_modal_order -> create ticket
             if (customId.startsWith('copay_modal_order:')) {
                 const packageId = customId.split(':')[1];
+                await interaction.deferReply({ ephemeral: true });
                 const robloxUsername = interaction.fields.getTextInputValue('roblox_username');
 
-                await interaction.deferReply({ ephemeral: true });
                 const pkg = await RobuxPackage.findById(packageId);
                 if (!pkg) return interaction.editReply({ content: 'Paket tidak ditemukan.' });
 
@@ -2843,20 +2843,27 @@ module.exports = {
                 let confirmationInProgress = false;
 
                 collector.on('collect', async buttonInteraction => {
-                    if (confirmationInProgress) return;
-                    confirmationInProgress = true;
-                    await buttonInteraction.deferUpdate();
-                    collector.stop(buttonInteraction.customId === 'copay_confirm_order' ? 'confirmed' : 'cancelled');
-
-                    if (buttonInteraction.customId === 'copay_cancel_order') {
-                        return buttonInteraction.editReply({ content: '❌ Pesanan dibatalkan.', embeds: [], components: [] });
-                    }
-
                     try {
+                        if (confirmationInProgress) {
+                            return await buttonInteraction.deferUpdate().catch(() => {});
+                        }
+                        confirmationInProgress = true;
+                        collector.stop(buttonInteraction.customId === 'copay_confirm_order' ? 'confirmed' : 'cancelled');
+
+                        if (buttonInteraction.customId === 'copay_cancel_order') {
+                            return await buttonInteraction.update({ content: '❌ Pesanan dibatalkan.', embeds: [], components: [] });
+                        }
+
+                        await buttonInteraction.deferUpdate();
                         await createTicketFromSession(buttonInteraction, session, buttonInteraction.client);
                     } catch (err) {
                         logger.error('[Copay Order Error]', err);
-                        await buttonInteraction.editReply({ content: '❌ Gagal membuat ticket. Silakan coba lagi nanti.', embeds: [], components: [] }).catch(() => {});
+                        const errorReply = { content: '❌ Gagal membuat ticket. Silakan coba lagi nanti.', embeds: [], components: [] };
+                        if (buttonInteraction.deferred || buttonInteraction.replied) {
+                            await buttonInteraction.editReply(errorReply).catch(() => {});
+                        } else {
+                            await buttonInteraction.reply({ ...errorReply, ephemeral: true }).catch(() => {});
+                        }
                     }
                 });
 
