@@ -2815,18 +2815,57 @@ module.exports = {
                 const pkg = await RobuxPackage.findById(packageId);
                 if (!pkg) return interaction.editReply({ content: 'Paket tidak ditemukan.' });
 
-                try {
-                    const session = {
-                        type: 'copay',
-                        amount: pkg.amount,
-                        price: pkg.price,
-                        robloxUsername: robloxUsername
-                    };
-                    await createTicketFromSession(interaction, session, interaction.client);
-                    return;
-                } catch (err) {
-                    return interaction.editReply({ content: '❌ Gagal membuat ticket. Silakan coba lagi nanti.' });
-                }
+                const session = {
+                    type: 'copay',
+                    amount: pkg.amount,
+                    price: pkg.price,
+                    robloxUsername
+                };
+                const confirmEmbed = new EmbedBuilder()
+                    .setTitle('🔍 Konfirmasi Order Community Payout')
+                    .setDescription('Pastikan username dan paket yang dipilih sudah benar sebelum membuat ticket.')
+                    .addFields(
+                        { name: '👤 Username Roblox', value: `\`${robloxUsername}\``, inline: true },
+                        { name: '📦 Paket', value: `\`${pkg.amount.toLocaleString('id-ID')} Robux\``, inline: true },
+                        { name: '💰 Total Pembayaran', value: `\`Rp${pkg.price.toLocaleString('id-ID')}\``, inline: true }
+                    )
+                    .setColor('#2ecc71');
+                const confirmRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId('copay_confirm_order').setLabel('✅ Konfirmasi Pesanan').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId('copay_cancel_order').setLabel('❌ Batalkan').setStyle(ButtonStyle.Danger)
+                );
+
+                const reply = await interaction.editReply({ embeds: [confirmEmbed], components: [confirmRow] });
+                const collector = reply.createMessageComponentCollector({
+                    filter: buttonInteraction => buttonInteraction.user.id === interaction.user.id,
+                    time: 300000
+                });
+                let confirmationInProgress = false;
+
+                collector.on('collect', async buttonInteraction => {
+                    if (confirmationInProgress) return;
+                    confirmationInProgress = true;
+                    await buttonInteraction.deferUpdate();
+                    collector.stop(buttonInteraction.customId === 'copay_confirm_order' ? 'confirmed' : 'cancelled');
+
+                    if (buttonInteraction.customId === 'copay_cancel_order') {
+                        return buttonInteraction.editReply({ content: '❌ Pesanan dibatalkan.', embeds: [], components: [] });
+                    }
+
+                    try {
+                        await createTicketFromSession(buttonInteraction, session, buttonInteraction.client);
+                    } catch (err) {
+                        logger.error('[Copay Order Error]', err);
+                        await buttonInteraction.editReply({ content: '❌ Gagal membuat ticket. Silakan coba lagi nanti.', embeds: [], components: [] }).catch(() => {});
+                    }
+                });
+
+                collector.on('end', (collected, reason) => {
+                    if (reason === 'time') {
+                        interaction.editReply({ content: '⏳ Waktu konfirmasi habis. Silakan ulangi proses.', embeds: [], components: [] }).catch(() => {});
+                    }
+                });
+                return;
             }
 
             // ==========================================
