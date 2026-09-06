@@ -1141,7 +1141,7 @@ module.exports = {
                         new StringSelectMenuOptionBuilder()
                             .setLabel(`${pkg.amount} Robux`)
                             .setDescription(`Harga: Rp ${pkg.price.toLocaleString('id-ID')}`)
-                            .setValue(pkg._id.toString())
+                            .setValue(`${pkg._id}:${pkg.amount}:${pkg.price}`)
                     );
                 });
 
@@ -1151,12 +1151,10 @@ module.exports = {
 
             // Select Menu: copay_select_package
             if (customId === 'copay_select_package') {
-                const packageId = interaction.values[0];
-                const pkg = await RobuxPackage.findById(packageId);
-                if (!pkg) return interaction.reply({ content: 'Paket tidak ditemukan.', ephemeral: true });
+                const [packageId, amount, price] = interaction.values[0].split(':');
 
                 const modal = new ModalBuilder()
-                    .setCustomId(`copay_modal_order:${packageId}`)
+                    .setCustomId(`copay_modal_order:${packageId}:${amount}:${price}`)
                     .setTitle('Konfirmasi Pesanan Community Payout (14 Hari)');
                 
                 const robloxUsernameInput = new TextInputBuilder()
@@ -2808,12 +2806,15 @@ module.exports = {
 
             // Modal: copay_modal_order -> create ticket
             if (customId.startsWith('copay_modal_order:')) {
-                const packageId = customId.split(':')[1];
+                const [, packageId, selectedAmount, selectedPrice] = customId.split(':');
                 await interaction.deferReply({ ephemeral: true });
                 const robloxUsername = interaction.fields.getTextInputValue('roblox_username');
 
                 const pkg = await RobuxPackage.findById(packageId);
                 if (!pkg) return interaction.editReply({ content: 'Paket tidak ditemukan.' });
+                if (pkg.amount !== Number(selectedAmount) || pkg.price !== Number(selectedPrice)) {
+                    return interaction.editReply({ content: 'Paket sudah berubah. Silakan pilih paket terbaru.' });
+                }
 
                 const session = {
                     type: 'copay',
