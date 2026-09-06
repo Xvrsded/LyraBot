@@ -703,7 +703,7 @@ module.exports = {
                     .addOptions(
                         { label: 'Robux Via Login', value: 'LOGIN', emoji: '🟢' },
                         { label: 'Robux Via Send', value: 'SEND', emoji: '📦' },
-                        { label: 'Gamepass (Pending 5 Hari)', value: 'COPAY', emoji: '🌐' }
+                        { label: 'Community Payout (14 Hari)', value: 'COPAY', emoji: '🌐' }
                     );
 
                 const row = new ActionRowBuilder().addComponents(select);
@@ -1146,7 +1146,7 @@ module.exports = {
                 });
 
                 const row = new ActionRowBuilder().addComponents(selectMenu);
-                return interaction.reply({ content: 'Silakan pilih paket Gamepass (Pending 5 Hari) yang ingin Anda beli:', components: [row], ephemeral: true });
+                return interaction.reply({ content: 'Silakan pilih paket Community Payout (14 Hari) yang ingin Anda beli:', components: [row], ephemeral: true });
             }
 
             // Select Menu: copay_select_package
@@ -1157,7 +1157,7 @@ module.exports = {
 
                 const modal = new ModalBuilder()
                     .setCustomId(`copay_modal_order:${packageId}`)
-                    .setTitle('Konfirmasi Pesanan Gamepass (Pending 5 Hari)');
+                    .setTitle('Konfirmasi Pesanan Community Payout (14 Hari)');
                 
                 const robloxUsernameInput = new TextInputBuilder()
                     .setCustomId('roblox_username')
