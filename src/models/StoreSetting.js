@@ -23,6 +23,9 @@ const storeSettingSchema = new mongoose.Schema({
         gift_in_game: {
             enabled: { type: Boolean, default: true }
         },
+        copay: {
+            enabled: { type: Boolean, default: true }
+        },
         mm_rekber: {
             status: { type: String, enum: ['OPEN', 'CLOSE'], default: 'OPEN' }
         },

@@ -90,7 +90,7 @@ async function createTicketFromSession(interaction, session, client) {
         const isLimited = session.type === 'limited';
         const isBoost = session.type.startsWith('boost_');
         
-        let productName = isGIG ? 'Gift In Game' : (isVisend ? 'Robux Via Send' : (isCopay ? 'Robux Gamepass (Pending 5 Hari)' : (isMM ? 'MM / Rekber' : (isLimited ? 'Limited Item' : 'Robux Via Login'))));
+        let productName = isGIG ? 'Gift In Game' : (isVisend ? 'Robux Via Send' : (isCopay ? 'Community Payout' : (isMM ? 'MM / Rekber' : (isLimited ? 'Limited Item' : 'Robux Via Login'))));
         if (isBoost) {
             productName = session.type === 'boost_fishit' ? 'Boost Fishit' : 'Boost Kalb';
         }
@@ -208,7 +208,7 @@ async function createTicketFromSession(interaction, session, client) {
                     { name: '👤 Username', value: `\`${session.robloxUsername}\``, inline: true },
                     { name: '📌 Status', value: '🟡 Pending', inline: true },
                     { name: '━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
-                    { name: '💳 Pembayaran', value: `Silakan lakukan pembayaran sesuai dengan total yang tertera di atas.\n\n🟦 **GoPay**\n\`081393625527\``, inline: false },
+                    { name: '💳 Pembayaran', value: `Silakan lakukan pembayaran sesuai dengan total yang tertera di atas.\n\n🟦 **GoPay**\n\`081393625527\`\n🏦 **BCA**\n\`4561218981\``, inline: false },
                     { name: '━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
                     { 
                         name: '📝 Catatan Pembayaran', 
@@ -245,7 +245,7 @@ async function createTicketFromSession(interaction, session, client) {
                     { name: 'Total Pembayaran', value: `\`Rp${session.price.toLocaleString('id-ID')}\``, inline: true },
                     { name: '📌 Status', value: '🟡 Waiting Payment', inline: true },
                     { name: '━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
-                    { name: '💳 Pembayaran', value: `Silakan lakukan pembayaran fee sesuai dengan total yang tertera di atas.\n\n🟦 **GoPay**\n\`081393625527\``, inline: false },
+                    { name: '💳 Pembayaran', value: `Silakan lakukan pembayaran fee sesuai dengan total yang tertera di atas.\n\n🟦 **GoPay**\n\`081393625527\`\n🏦 **BCA**\n\`4561218981\``, inline: false },
                     { name: '━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
                     { 
                         name: '📝 Catatan Pembayaran', 
@@ -275,11 +275,15 @@ async function createTicketFromSession(interaction, session, client) {
                     { name: '📌 Status', value: '🟡 Pending Payment', inline: true },
                     { name: '📝 Catatan', value: `\`${session.notes || '-'}\``, inline: false },
                     { name: '━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
-                    { name: '💳 Pembayaran', value: `Silakan lakukan pembayaran sesuai nominal di atas.\n\n🟦 **GoPay**\n\`081393625527\``, inline: false },
+                    { name: '💳 Pembayaran', value: `Silakan lakukan pembayaran sesuai dengan total yang tertera di atas.\n\n🟦 **GoPay**\n\`081393625527\`\n🏦 **BCA**\n\`4561218981\``, inline: false },
                     { name: '━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
                     { 
                         name: '📝 Catatan Pembayaran', 
                         value: 
+                            '• Maksimal pembayaran melalui QRIS adalah Rp500.000 untuk setiap transaksi.\n' +
+                            '• Untuk transaksi di atas Rp500.000, silakan lakukan pembayaran lebih dari satu kali, atau gunakan satu kali pembayaran dengan tambahan biaya QRIS sebesar 0,3%.\n' +
+                            '• Apabila melakukan transfer ke GoPay menggunakan Bank atau E-Wallet selain GoPay, akan dikenakan biaya tambahan sebesar Rp1.000 sesuai ketentuan penyedia layanan.\n' +
+                            '• Pastikan nominal pembayaran sesuai dengan total yang tertera pada Ticket.\n' +
                             '• Setelah pembayaran selesai, kirim bukti transfer langsung pada Ticket ini.\n' +
                             '• Mohon tunggu hingga Staff memverifikasi pembayaran Anda secara manual.',
                         inline: false 
@@ -303,7 +307,7 @@ async function createTicketFromSession(interaction, session, client) {
                     { name: '👤 Username Roblox', value: `\`${session.robloxUsername}\``, inline: true },
                     { name: '📌 Status', value: '🟡 Pending Payment', inline: true },
                     { name: '━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
-                    { name: '💳 Pembayaran', value: `Silakan lakukan pembayaran sesuai nominal di atas.\n\n🟦 **GoPay**\n\`081393625527\``, inline: false },
+                    { name: '💳 Pembayaran', value: `Silakan lakukan pembayaran sesuai nominal di atas.\n\n🟦 **GoPay**\n\`081393625527\`\n🏦 **BCA**\n\`4561218981\``, inline: false },
                     { name: '━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
                     { 
                         name: '📝 Catatan Pembayaran', 
@@ -333,7 +337,7 @@ async function createTicketFromSession(interaction, session, client) {
                     { name: '📌 Status', value: '🟡 Pending', inline: true },
                     ...(isVisend ? [] : [{ name: '🔑 Password', value: `||${session.robloxPassword}||`, inline: true }]),
                     { name: '━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
-                    { name: '💳 Pembayaran', value: `Silakan lakukan pembayaran sesuai dengan total yang tertera di atas.\n\n🟦 **GoPay**\n\`081393625527\``, inline: false },
+                    { name: '💳 Pembayaran', value: `Silakan lakukan pembayaran sesuai dengan total yang tertera di atas.\n\n🟦 **GoPay**\n\`081393625527\`\n🏦 **BCA**\n\`4561218981\``, inline: false },
                     { name: '━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false },
                     { 
                         name: '📝 Catatan Pembayaran', 
@@ -932,7 +936,6 @@ module.exports = {
                     
                     // Sync Panels
                     const robuxService = require('../services/robuxService');
-                    if (robuxService.seedRobuxPackages) await robuxService.seedRobuxPackages();
                     if (robuxService.syncVisendPanel) await robuxService.syncVisendPanel(interaction.client);
                     if (robuxService.syncVilogPanel) await robuxService.syncVilogPanel(interaction.client);
                     if (robuxService.syncGigPanel) await robuxService.syncGigPanel(interaction.client);
