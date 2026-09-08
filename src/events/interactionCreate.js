@@ -16,12 +16,9 @@ const fs = require('fs');
 const path = require('path');
 
 function createQrAttachment() {
-    const candidates = ['LyraPayment.png', 'LyraPayment.jpg'];
-    const qrPath = candidates
-        .map(filename => path.join(__dirname, '../../Public', filename))
-        .find(candidate => fs.existsSync(candidate));
+    const qrPath = path.join(__dirname, '../../Public', 'LyraPayment.jpg');
 
-    if (!qrPath) throw new Error('QR payment asset tidak ditemukan di folder Public.');
+    if (!fs.existsSync(qrPath)) throw new Error('QR payment asset tidak ditemukan di folder Public.');
     const { AttachmentBuilder } = require('discord.js');
     return new AttachmentBuilder(qrPath, {
         name: `qris_${Date.now()}${path.extname(qrPath)}`
@@ -2512,7 +2509,7 @@ module.exports = {
                                                 updatedFields[i].value = `\`${newAmount.toLocaleString('id-ID')} Robux\``;
                                             }
                                         }
-                                        if (fname.includes('total') || fname.includes('pembayaran')) {
+                                        if (fname.includes('total')) {
                                             updatedFields[i].value = `\`Rp ${newTotal.toLocaleString('id-ID')}\``;
                                         }
                                     }

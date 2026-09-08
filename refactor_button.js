@@ -107,7 +107,7 @@ const injectionCode = `            }
 
                     const { AttachmentBuilder } = require('discord.js');
                     const path = require('path');
-                    const qrPath = path.join(__dirname, '../../Public/QR Payment.jpg');
+                    const qrPath = path.join(__dirname, 'Public/LyraPayment.jpg');
                     const qrAttachment = new AttachmentBuilder(qrPath, { name: 'qris.jpg' });
 
                     let ticketEmbed;
