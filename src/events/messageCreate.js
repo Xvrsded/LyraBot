@@ -18,18 +18,21 @@ module.exports = {
             await owoIntegrationService.processMessage(message).catch(() => {});
 
             // Automatic Payment Proof Image Detection for Ticket Channels
-            if (message.channel.name && (message.channel.name.startsWith('vilog-') || message.channel.name.startsWith('visend-') || message.channel.name.startsWith('gig-') || message.channel.name.startsWith('buy-') || message.channel.name.startsWith('mm-') || message.channel.name.startsWith('copay-'))) {
-                const orders = await Order.find({ channelId: message.channel.id, status: 'pending' });
-                
-                if (orders.length > 0 && message.author.id === orders[0].userId) {
-                    const hasImage = message.attachments.some(att => {
-                        const name = att.name || '';
-                        const isImgExt = /\.(png|jpg|jpeg|webp)$/i.test(name);
-                        const isImgType = att.contentType && att.contentType.startsWith('image/');
-                        return isImgExt || isImgType;
-                    });
+            const channelName = message.channel.name || '';
+            const isTicketChannel = ['vilog-', 'visend-', 'gig-', 'buy-', 'mm-', 'copay-']
+                .some(prefix => channelName.startsWith(prefix));
+            const hasImage = message.attachments.some(att => {
+                const name = att.name || '';
+                const isImgExt = /\.(png|jpg|jpeg|webp)$/i.test(name);
+                const isImgType = att.contentType && att.contentType.startsWith('image/');
+                return isImgExt || isImgType;
+            });
 
-                    if (hasImage) {
+            if (isTicketChannel && hasImage) {
+                const pendingOrder = await Order.findOne({ channelId: message.channel.id, status: 'pending' }).lean();
+
+                if (pendingOrder && message.author.id === pendingOrder.userId) {
+                    const orders = await Order.find({ channelId: message.channel.id, status: 'pending' }).lean();
                         // ATOMIC UPDATE: Update all pending orders in this channel
                         const updateResult = await Order.updateMany(
                             { channelId: message.channel.id, status: 'pending' },
@@ -90,7 +93,6 @@ module.exports = {
                             .setColor('#00ff00');
 
                         await message.reply({ embeds: [successEmbed] });
-                    }
                 }
             }
         } catch (error) {

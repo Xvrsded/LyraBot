@@ -8,7 +8,9 @@ function startLiveLeaderboard(client) {
     const UPDATE_INTERVAL = 10 * 60 * 1000;
     const CHANNEL_ID = '1473251746259402867';
 
-    const updateLeaderboardMessage = async () => {
+    let updateInFlight = null;
+
+    const performLeaderboardUpdate = async () => {
         try {
             console.log('🔄 Mengupdate Live Leaderboard...');
 
@@ -56,6 +58,14 @@ function startLiveLeaderboard(client) {
         } catch (error) {
             console.error('❌ Error saat update Live Leaderboard:', error);
         }
+    };
+
+    const updateLeaderboardMessage = () => {
+        if (updateInFlight) return updateInFlight;
+        updateInFlight = performLeaderboardUpdate().finally(() => {
+            updateInFlight = null;
+        });
+        return updateInFlight;
     };
 
     updateLeaderboardFn = updateLeaderboardMessage;

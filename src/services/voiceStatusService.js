@@ -5,6 +5,7 @@ const settingsService = require('./settingsService');
 const logger = require('../utils/logger');
 
 const QUEUE_CATEGORY_ID = '1456813672000262144';
+let activeUpdate = null;
 
 // Target Names Generators
 const getChannelNames = async () => {
@@ -54,7 +55,7 @@ const getChannelNames = async () => {
  * Updates all Voice Channel Statuses in the category based on DB state.
  * @param {import('discord.js').Client} client 
  */
-async function updateAllVoiceStatuses(client) {
+async function refreshVoiceStatuses(client) {
     try {
         const category = await client.channels.fetch(QUEUE_CATEGORY_ID).catch(() => null);
         if (!category || category.type !== ChannelType.GuildCategory) {
@@ -112,6 +113,15 @@ async function updateAllVoiceStatuses(client) {
     } catch (error) {
         logger.error('[VoiceStatus] Error updating statuses:', error);
     }
+}
+
+function updateAllVoiceStatuses(client) {
+    if (activeUpdate) return activeUpdate;
+
+    activeUpdate = refreshVoiceStatuses(client).finally(() => {
+        activeUpdate = null;
+    });
+    return activeUpdate;
 }
 
 module.exports = {

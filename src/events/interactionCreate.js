@@ -8,6 +8,7 @@ const RobuxPackage = require('../models/RobuxPackage');
 const settingsService = require('../services/settingsService');
 const logger = require('../utils/logger');
 const noblox = require('noblox.js');
+const crypto = require('crypto');
 const { getRobloxUserInfo } = require('../services/robloxService');
 const { getStoreSetting, buildDashboardMessage } = require('../services/storeService');
 const activeClosures = new Set();
@@ -44,33 +45,21 @@ function buildReviewPanel(orderId) {
 
 async function createTicketFromSession(interaction, session, client) {
     try {
-        // Sequential Order ID (Safe against deletions)
-        const lastOrder = await Order.findOne().sort({ _id: -1 });
-        let nextNumber = 1;
-        if (lastOrder && lastOrder.orderId) {
-            const match = lastOrder.orderId.match(/\d+/);
-            if (match) nextNumber = parseInt(match[0], 10) + 1;
-        }
-        
-        // Ensure uniqueness by checking if the generated ID already exists (in case of race conditions)
-        let orderId = `LB-${String(nextNumber).padStart(6, '0')}`;
-        while (await Order.exists({ orderId })) {
-            nextNumber++;
-            orderId = `LB-${String(nextNumber).padStart(6, '0')}`;
-        }
+        const orderId = `LB-${Date.now()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
 
         // Determine Category
         const categoryKey = session.type === 'gig' ? 'gig_category_id' : (session.type === 'visend' ? 'visend_category_id' : (session.type === 'copay' ? 'copay_category_id' : 'vilog_category_id'));
-        let categoryId = await settingsService.get(categoryKey);
+        const [configuredCategoryId, staffRoleId, adminRoleId, ownerRoleId] = await Promise.all([
+            settingsService.get(categoryKey),
+            settingsService.get('staff_role_id'),
+            settingsService.get('admin_role_id'),
+            settingsService.get('owner_role_id')
+        ]);
+        let categoryId = configuredCategoryId;
         if (!categoryId) {
             categoryId = await settingsService.get('global_ticket_category_id');
         }
         const categoryChannel = categoryId ? await interaction.guild.channels.fetch(categoryId).catch(() => null) : null;
-
-        // Permissions
-        const staffRoleId = await settingsService.get('staff_role_id');
-        const adminRoleId = await settingsService.get('admin_role_id');
-        const ownerRoleId = await settingsService.get('owner_role_id');
 
         const permissions = [
             { id: interaction.guild.id, deny: ['ViewChannel'] },
@@ -1512,12 +1501,13 @@ module.exports = {
             // Copy Username Action
             if (customId.startsWith('copy_user_')) {
                 const orderId = customId.replace('copy_user_', '');
+                await interaction.deferReply({ ephemeral: true });
                 const order = await Order.findOne({ orderId });
                 if (!order) {
-                    return interaction.reply({ content: '❌ Data pesanan tidak ditemukan.', ephemeral: true });
+                    return interaction.editReply({ content: '❌ Data pesanan tidak ditemukan.' });
                 }
                 const username = order.details?.username || order.details?.robloxUsername || order.details?.displayName || '-';
-                return interaction.reply({ content: `\`${username}\``, ephemeral: true });
+                return interaction.editReply({ content: `\`${username}\`` });
             }
 
             // Robux Staff Delivery Action (Vilog & Visend)
@@ -1755,6 +1745,7 @@ module.exports = {
                 const isDeliver = customId.startsWith('order_deliver_');
                 const orderId = customId.replace(isDeliver ? 'order_deliver_' : 'order_cancel_', '');
 
+                await interaction.deferReply({ ephemeral: true });
                 const staffRoleId = await settingsService.get('staff_role_id');
                 const adminRoleId = await settingsService.get('admin_role_id');
                 const ownerRoleId = await settingsService.get('owner_role_id');
@@ -1766,10 +1757,8 @@ module.exports = {
                                      member.permissions.has('Administrator');
 
                 if (!isAuthorized) {
-                    return interaction.reply({ content: '❌ Anda tidak memiliki izin untuk memproses pesanan ini.', ephemeral: true });
+                    return interaction.editReply('❌ Anda tidak memiliki izin untuk memproses pesanan ini.');
                 }
-
-                await interaction.deferReply();
 
                 try {
                     const brandingName = await settingsService.get('branding_name', 'LyraBlox');
@@ -2014,6 +2003,7 @@ module.exports = {
 
             // Ticket Close Confirmation
             if (customId === 'ticket_close') {
+                await interaction.deferReply({ ephemeral: true });
                 const staffRoleId = await settingsService.get('staff_role_id');
                 const adminRoleId = await settingsService.get('admin_role_id');
                 const ownerRoleId = await settingsService.get('owner_role_id');
@@ -2027,7 +2017,7 @@ module.exports = {
                                 isOwner || isAdmin;
 
                 if (!isStaff) {
-                    return interaction.reply({ content: '❌ Hanya staf yang dapat menutup tiket ini.', ephemeral: true });
+                    return interaction.editReply('❌ Hanya staf yang dapat menutup tiket ini.');
                 }
 
                 const confirmEmbed = new EmbedBuilder()
@@ -2048,16 +2038,17 @@ module.exports = {
                         .setStyle(ButtonStyle.Danger)
                 );
 
-                return await interaction.reply({ embeds: [confirmEmbed], components: [row] });
+                return await interaction.editReply({ embeds: [confirmEmbed], components: [row] });
             }
 
             // Ticket Close Cancel
             if (customId === 'ticket_close_cancel') {
+                await interaction.deferUpdate();
                 const staffRoleId = await settingsService.get('staff_role_id');
                 const adminRoleId = await settingsService.get('admin_role_id');
                 const ownerRoleId = await settingsService.get('owner_role_id');
 
-                const member = await interaction.guild.members.fetch(interaction.user.id);
+                const member = interaction.member || await interaction.guild.members.fetch(interaction.user.id);
                 const isOwner = interaction.guild.ownerId === interaction.user.id;
                 const isAdmin = member.permissions.has('Administrator');
                 const isStaff = member.roles.cache.has(staffRoleId) ||
@@ -2066,19 +2057,20 @@ module.exports = {
                                 isOwner || isAdmin;
 
                 if (!isStaff) {
-                    return interaction.reply({ content: '❌ Hanya staf yang dapat membatalkan penutupan tiket ini.', ephemeral: true });
+                    return interaction.followUp({ content: '❌ Hanya staf yang dapat membatalkan penutupan tiket ini.', ephemeral: true });
                 }
 
-                return await interaction.update({ content: '❌ Penutupan tiket dibatalkan.', embeds: [], components: [] });
+                return await interaction.editReply({ content: '❌ Penutupan tiket dibatalkan.', embeds: [], components: [] });
             }
 
             // Ticket Close Confirm Exec
             if (customId === 'ticket_close_confirm') {
+                await interaction.deferUpdate();
                 const staffRoleId = await settingsService.get('staff_role_id');
                 const adminRoleId = await settingsService.get('admin_role_id');
                 const ownerRoleId = await settingsService.get('owner_role_id');
 
-                const member = await interaction.guild.members.fetch(interaction.user.id);
+                const member = interaction.member || await interaction.guild.members.fetch(interaction.user.id);
                 const isOwner = interaction.guild.ownerId === interaction.user.id;
                 const isAdmin = member.permissions.has('Administrator');
                 const isStaff = member.roles.cache.has(staffRoleId) ||
@@ -2087,7 +2079,7 @@ module.exports = {
                                 isOwner || isAdmin;
 
                 if (!isStaff) {
-                    return interaction.reply({ content: '❌ Hanya staf yang dapat menutup tiket ini.', ephemeral: true });
+                    return interaction.followUp({ content: '❌ Hanya staf yang dapat menutup tiket ini.', ephemeral: true });
                 }
 
                 const channelId = interaction.channel.id;
@@ -2103,7 +2095,7 @@ module.exports = {
                     .setDescription(`🔒 Ticket akan ditutup otomatis dalam:\n**${secondsLeft} Detik**`)
                     .setColor('#ff0000');
 
-                await interaction.update({ embeds: [countdownEmbed], components: [] });
+                await interaction.editReply({ embeds: [countdownEmbed], components: [] });
 
                 const interval = setInterval(async () => {
                     secondsLeft -= 10;

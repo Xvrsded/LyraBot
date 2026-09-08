@@ -8,6 +8,7 @@ class Scheduler {
     constructor() {
         this.client = null;
         this.cronTasks = new Map();     // jobName -> cronTask
+        this.runningJobs = new Set();
         this.pollingInterval = null;
         this.isRunningPolling = false;
 
@@ -144,6 +145,18 @@ class Scheduler {
      * @returns {Promise<void>}
      */
     async executeJob(job) {
+        const jobKey = String(job._id);
+        if (this.runningJobs.has(jobKey)) return;
+        this.runningJobs.add(jobKey);
+
+        try {
+            await this._executeJob(job);
+        } finally {
+            this.runningJobs.delete(jobKey);
+        }
+    }
+
+    async _executeJob(job) {
         const handler = jobManager.handlers.get(job.name);
         const startedAt = new Date();
         

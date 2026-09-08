@@ -3,8 +3,11 @@ const User = require('../models/User');
 function startEligibilityChecker(client) {
     // Run the checker every 12 hours (43200000 ms)
     const CHECK_INTERVAL = 12 * 60 * 60 * 1000;
+    let isChecking = false;
 
     const checkEligibility = async () => {
+        if (isChecking) return;
+        isChecking = true;
         try {
             console.log('🔄 Menjalankan pengecekan durasi join member (14 hari)...');
             const roleId = process.env.ELIGIBLE_ROLE_ID;
@@ -14,12 +17,9 @@ function startEligibilityChecker(client) {
                 return;
             }
 
-            client.guilds.cache.forEach(async (guild) => {
+            const usersToCheck = await User.find({ eligibleForPayout: false, verified: true });
+            for (const guild of client.guilds.cache.values()) {
                 try {
-                    // Hapus fetch seluruh member
-                    // const members = await guild.members.fetch();
-                    const usersToCheck = await User.find({ eligibleForPayout: false, verified: true });
-                    
                     // Bulk fetch to avoid REST queue freezing
                     const userIds = usersToCheck.map(u => u.discordId);
                     for (let i = 0; i < userIds.length; i += 100) {
@@ -47,9 +47,11 @@ function startEligibilityChecker(client) {
                 } catch (err) {
                     console.error(`Gagal mengecek guild ${guild.name}:`, err);
                 }
-            });
+            }
         } catch (error) {
             console.error('❌ Error saat menjalankan pengecekan eligibility:', error);
+        } finally {
+            isChecking = false;
         }
     };
 

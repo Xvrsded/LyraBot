@@ -18,4 +18,7 @@ const OrderSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now }
 });
 
+OrderSchema.index({ channelId: 1, status: 1 });
+OrderSchema.index({ userId: 1, status: 1 });
+
 module.exports = mongoose.model('Order', OrderSchema);
