@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const { syncVilogPanel } = require('../../services/robuxService');
+const { seedRobuxPackages, syncVilogPanel } = require('../../services/robuxService');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -9,6 +9,7 @@ module.exports = {
     async execute(interaction) {
         await interaction.deferReply({ ephemeral: true });
         try {
+            await seedRobuxPackages();
             await syncVilogPanel(interaction.client);
             return interaction.editReply('✅ Panel pricelist Robux Via Login berhasil disinkronisasi!');
         } catch (err) {

@@ -105,7 +105,7 @@ async function syncVilogPanel(client) {
             return;
         }
 
-        const packages = await configService.getProductPackages('vilog');
+        const packages = await configService.getProductPackages('vilog', true);
         
         let priceListText = '```text\n';
         if (packages.length === 0) {
