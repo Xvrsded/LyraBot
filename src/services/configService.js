@@ -314,6 +314,29 @@ class ConfigService {
         return config;
     }
 
+    async updateGigRates(globalRate, indoRate, author = 'System', userId = null) {
+        const config = await this.getGlobalConfig(true);
+        const oldRates = { global: config.gigRateGlobal || config.gigRate || 90, indo: config.gigRateIndo || config.gigRate || 90 };
+
+        config.gigRateGlobal = globalRate;
+        config.gigRateIndo = indoRate;
+        config.gigRate = globalRate;
+        config.lastUpdatedBy = author;
+        config.lastUpdatedAt = new Date();
+        config.configVersion += 1;
+
+        await config.save();
+        dashboardCache.globalConfig = config;
+
+        await auditService.info('Dashboard', 'GIG_RATES_UPDATE', {
+            userId,
+            metadata: { oldRates, newRates: { global: globalRate, indo: indoRate } }
+        });
+
+        await this._triggerSyncRefreshers();
+        return config;
+    }
+
     async updateProductPackage(packageId, updateData, author = 'System', userId = null) {
         const pkg = await RobuxPackage.findById(packageId);
         if (!pkg) throw new Error('Package not found');

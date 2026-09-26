@@ -20,6 +20,7 @@ const VILOG_PRICE_CATALOG = [
 ];
 
 const ROBLOX_PLUS_PRICE = 110000;
+const ROBLOX_PLUS_PACKAGE = { amount: 0, label: 'ROBLOX PLUS', price: ROBLOX_PLUS_PRICE, sortOrder: 13 };
 
 const VISEND_PRICE_CATALOG = [
     { amount: 100, price: 16000, sortOrder: 1 },
@@ -35,7 +36,7 @@ const VISEND_PRICE_CATALOG = [
 ];
 
 async function syncVilogPriceCatalog() {
-    const targetAmounts = VILOG_PRICE_CATALOG.map(pkg => pkg.amount);
+    const targetAmounts = [...VILOG_PRICE_CATALOG, ROBLOX_PLUS_PACKAGE].map(pkg => pkg.amount);
 
     await RobuxPackage.deleteMany(
         { type: { $in: ['LOGIN', 'login', 'robux_login'] } }
@@ -53,6 +54,12 @@ async function syncVilogPriceCatalog() {
         },
         { upsert: true, new: true, setDefaultsOnInsert: true }
     )));
+
+    await RobuxPackage.findOneAndUpdate(
+        { type: 'vilog', amount: ROBLOX_PLUS_PACKAGE.amount },
+        { ...ROBLOX_PLUS_PACKAGE, type: 'vilog', displayOrder: ROBLOX_PLUS_PACKAGE.sortOrder, isActive: true },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
 
     await RobuxPackage.updateMany(
         { type: 'vilog', amount: { $nin: targetAmounts } },
@@ -111,13 +118,19 @@ async function syncVilogPanel(client) {
         if (packages.length === 0) {
             priceListText += 'Belum ada paket Robux yang tersedia.\n';
         } else {
-            packages.forEach(pkg => {
+                packages.forEach(pkg => {
+                    if (pkg.amount === 0 && pkg.label) {
+                        priceListText += `${pkg.label.padEnd(12, ' ')} = Rp ${pkg.price.toLocaleString('id-ID')}\n`;
+                        return;
+                    }
                 const amountStr = `${pkg.amount.toLocaleString('id-ID')} Robux`;
                 const paddedAmount = amountStr.padEnd(12, ' ');
                 priceListText += `${paddedAmount} = Rp ${pkg.price.toLocaleString('id-ID')}\n`;
             });
         }
-        priceListText += `ROBLOX PLUS = Rp ${ROBLOX_PLUS_PRICE.toLocaleString('id-ID')}\n`;
+        if (!packages.some(pkg => pkg.amount === 0 && pkg.label === ROBLOX_PLUS_PACKAGE.label)) {
+            priceListText += `${ROBLOX_PLUS_PACKAGE.label} = Rp ${ROBLOX_PLUS_PRICE.toLocaleString('id-ID')}\n`;
+        }
         priceListText += '```';
 
         const brandingName = await settingsService.get('branding_name', 'LyraBlox');
@@ -272,12 +285,9 @@ async function syncGigPanel(client) {
 
         const configService = require('./configService');
         const config = await configService.getGlobalConfig();
-        const rate = config.gigRate || 90;
+        const globalRate = config.gigRateGlobal || config.gigRate || 90;
+        const indoRate = config.gigRateIndo || config.gigRate || 90;
         const brandingName = await settingsService.get('branding_name', 'LyraBlox');
-        
-        // Contoh perhitungan (misal: 55 Robux)
-        let samplePrice = 55 * rate;
-        let roundedSample = Math.ceil(samplePrice / 500) * 500;
         
         const embed = new EmbedBuilder()
             .setTitle(`🎮 ${brandingName.toUpperCase()} | GIFT IN GAME`)
@@ -291,53 +301,18 @@ async function syncGigPanel(client) {
                 `• Pastikan informasi yang diberikan sudah benar sebelum melakukan pembayaran.\n` +
                 `• Kesalahan informasi dari customer bukan menjadi tanggung jawab ${brandingName}.\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n` +
                 `💰 **Sistem Harga**\n` +
-                `Perhitungan menggunakan rate:\n\`\`\`text\n1 Robux = Rp${rate}\n\`\`\`\n` +
-                `*Catatan: Total pembayaran akan dibulatkan ke atas untuk kelipatan Rp500 terdekat.*\n\n` +
-                `Contoh Pembelian 55 Robux (Rate ${rate}):\n\`\`\`text\n55 Robux × Rp${rate} = Rp${samplePrice.toLocaleString('id-ID')}\n=> Dibulatkan menjadi Rp${roundedSample.toLocaleString('id-ID')}\n\`\`\``
+                `• GIG Reg Global: **Rp${globalRate} / Robux**\n` +
+                `• GIG Reg Indo: **Rp${indoRate} / Robux**\n\n` +
+                `*Total pembayaran dibulatkan ke atas untuk kelipatan Rp500 terdekat.*`
             )
             .setColor('#f43f5e')
             .setFooter({ text: `LyraBlox • Last Update: ${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB` })
             .setTimestamp();
 
         const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('gig_order_now').setLabel('🛒 Order GIG Sekarang').setStyle(ButtonStyle.Success)
+            new ButtonBuilder().setCustomId('gig_order_global').setLabel('🌐 GIG Reg Global').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('gig_order_indo').setLabel('🇮🇩 GIG Reg Indo').setStyle(ButtonStyle.Success)
         );
-
-        const { StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
-        const fishitSelect = new StringSelectMenuBuilder()
-            .setCustomId('boost_fishit_select_package')
-            .setPlaceholder('🛒 Order Boost Fishit...')
-            .addOptions(
-                new StringSelectMenuOptionBuilder().setLabel('x8 (6 jam)').setValue('x8 (6 jam):113500').setDescription('Rp 113.500'),
-                new StringSelectMenuOptionBuilder().setLabel('x8 (9 jam)').setValue('x8 (9 jam):139500').setDescription('Rp 139.500'),
-                new StringSelectMenuOptionBuilder().setLabel('x8 (12 jam)').setValue('x8 (12 jam):166000').setDescription('Rp 166.000'),
-                new StringSelectMenuOptionBuilder().setLabel('x8 (24 jam)').setValue('x8 (24 jam):270500').setDescription('Rp 270.500'),
-                new StringSelectMenuOptionBuilder().setLabel('x8 (48 jam)').setValue('x8 (48 jam):479500').setDescription('Rp 479.500'),
-                new StringSelectMenuOptionBuilder().setLabel('x8 (72 jam)').setValue('x8 (72 jam):688500').setDescription('Rp 688.500'),
-                new StringSelectMenuOptionBuilder().setLabel('x8 (96 jam)').setValue('x8 (96 jam):897500').setDescription('Rp 897.500'),
-                new StringSelectMenuOptionBuilder().setLabel('x8 (168 jam)').setValue('x8 (168 jam):1525000').setDescription('Rp 1.525.000')
-            );
-
-        const kalbSelect = new StringSelectMenuBuilder()
-            .setCustomId('boost_kalb_select_package')
-            .setPlaceholder('🛒 Order Boost Kalb...')
-            .addOptions(
-                new StringSelectMenuOptionBuilder().setLabel('Server Luck x2 - x8').setValue('Server Luck x2 - x8:95000').setDescription('Rp 95.000'),
-                new StringSelectMenuOptionBuilder().setLabel('Server Luck x2 - x16').setValue('Server Luck x2 - x16:285000').setDescription('Rp 285.000'),
-                new StringSelectMenuOptionBuilder().setLabel('Bulk x8 (2 server)').setValue('Bulk x8 (2 server):190000').setDescription('Rp 190.000'),
-                new StringSelectMenuOptionBuilder().setLabel('Bulk x8 (3 server)').setValue('Bulk x8 (3 server):285000').setDescription('Rp 285.000'),
-                new StringSelectMenuOptionBuilder().setLabel('Bulk x8 (4 server)').setValue('Bulk x8 (4 server):380000').setDescription('Rp 380.000'),
-                new StringSelectMenuOptionBuilder().setLabel('Bulk x8 (5 server)').setValue('Bulk x8 (5 server):475000').setDescription('Rp 475.000'),
-                new StringSelectMenuOptionBuilder().setLabel('Bulk x8 (10 server)').setValue('Bulk x8 (10 server):950000').setDescription('Rp 950.000'),
-                new StringSelectMenuOptionBuilder().setLabel('Bulk x16 (2 server)').setValue('Bulk x16 (2 server):570000').setDescription('Rp 570.000'),
-                new StringSelectMenuOptionBuilder().setLabel('Bulk x16 (3 server)').setValue('Bulk x16 (3 server):855000').setDescription('Rp 855.000'),
-                new StringSelectMenuOptionBuilder().setLabel('Bulk x16 (4 server)').setValue('Bulk x16 (4 server):1140000').setDescription('Rp 1.140.000'),
-                new StringSelectMenuOptionBuilder().setLabel('Bulk x16 (5 server)').setValue('Bulk x16 (5 server):1425000').setDescription('Rp 1.425.000'),
-                new StringSelectMenuOptionBuilder().setLabel('Bulk x16 (10 server)').setValue('Bulk x16 (10 server):2850000').setDescription('Rp 2.850.000')
-            );
-
-        const row2 = new ActionRowBuilder().addComponents(fishitSelect);
-        const row3 = new ActionRowBuilder().addComponents(kalbSelect);
 
         try {
             const messages = await channel.messages.fetch({ limit: 50 });
@@ -345,7 +320,7 @@ async function syncGigPanel(client) {
             for (const m of oldMessages.values()) await m.delete().catch(() => {});
         } catch (err) {}
 
-        await channel.send({ embeds: [embed], components: [row, row2, row3] });
+        await channel.send({ embeds: [embed], components: [row] });
         console.log(`[Robux] GIG panel list successfully updated in channel: #${channel.name}`);
     } catch (err) {
         console.error('[Robux Service] Error syncing GIG panel:', err);

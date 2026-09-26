@@ -65,7 +65,8 @@ async function buildDashboardMessage(client) {
             `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
             `📊 **Informasi**\n` +
             `• **Kategori Aktif:** 5 / 5\n` +
-            `• **GIG Rate:** Rp${setting.gigRate || 0} / Robux\n` +
+            `• **GIG Global:** Rp${setting.gigRateGlobal || setting.gigRate || 90} / Robux\n` +
+            `• **GIG Indo:** Rp${setting.gigRateIndo || setting.gigRate || 90} / Robux\n` +
             `• **Ticket Aktif:** ${stats.activeTickets}\n` +
             `• **Order Hari Ini:** ${stats.ordersToday}`
         )
@@ -122,7 +123,11 @@ async function buildDashboardMessage(client) {
         new ButtonBuilder()
             .setCustomId('dashboard_refresh_server')
             .setLabel('🔄 Refresh Server')
-            .setStyle(ButtonStyle.Secondary)
+            .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId('dashboard_qris')
+            .setLabel('💳 Ganti QRIS')
+            .setStyle(ButtonStyle.Primary)
     );
 
     return { embeds: [embed], components: [row1, row2, row3] };

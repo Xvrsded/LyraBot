@@ -38,6 +38,8 @@ const storeSettingSchema = new mongoose.Schema({
     sendStock: { type: Number, default: 0 },
     // Rates
     gigRate: { type: Number, default: 0 },
+    gigRateGlobal: { type: Number, default: 90 },
+    gigRateIndo: { type: Number, default: 90 },
     // Auto Update Trackers
     panelMessageIds: {
         LOGIN: { type: String, default: null },

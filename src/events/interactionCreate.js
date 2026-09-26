@@ -9,6 +9,7 @@ const settingsService = require('../services/settingsService');
 const logger = require('../utils/logger');
 const noblox = require('noblox.js');
 const crypto = require('crypto');
+const axios = require('axios');
 const { getRobloxUserInfo } = require('../services/robloxService');
 const { getStoreSetting, buildDashboardMessage } = require('../services/storeService');
 const activeClosures = new Set();
@@ -115,6 +116,7 @@ async function createTicketFromSession(interaction, session, client) {
                 amount: session.amount,
                 price: session.price,
                 rate: session.rate,
+                gigRegion: session.gigRegion,
                 robloxUsername: session.robloxUsername
             } : (isCopay ? {
                 username: session.robloxUsername,
@@ -187,6 +189,7 @@ async function createTicketFromSession(interaction, session, client) {
                 .setColor('#f43f5e')
                 .addFields(
                     { name: '📦 Produk', value: 'Gift In Game', inline: true },
+                    { name: '🌐 Region', value: session.gigRegion === 'indo' ? 'GIG Reg Indo' : 'GIG Reg Global', inline: true },
                     { name: '🎮 Game / Map', value: `\`\`\`text\n${session.gameLink || '-'}\n\`\`\``, inline: true },
                     { name: '🎁 Gamepass', value: `\`\`\`text\n${session.gamepassName || '-'}\n\`\`\``, inline: true },
                     { name: '💎 Harga Gamepass', value: `\`${session.amount.toLocaleString('id-ID')} Robux\``, inline: true },
@@ -316,7 +319,7 @@ async function createTicketFromSession(interaction, session, client) {
                 )
                 .addFields(
                     { name: '📦 Produk', value: productName, inline: true },
-                    { name: '🎁 Paket', value: session.isCustom ? 'Custom' : `${session.amount.toLocaleString('id-ID')} Robux`, inline: true },
+                    { name: '🎁 Paket', value: session.isCustom ? 'Custom' : (session.packageLabel || `${session.amount.toLocaleString('id-ID')} Robux`), inline: true },
                     { name: '💎 Jumlah Robux', value: `${session.amount.toLocaleString('id-ID')} Robux`, inline: true },
                     { name: '💰 Total', value: `Rp ${session.price.toLocaleString('id-ID')}`, inline: true },
                     { name: '👤 Username', value: `\`${session.robloxUsername}\``, inline: true },
@@ -526,10 +529,11 @@ module.exports = {
             if (customId === 'vilog_select_package') {
                 const selectedValue = interaction.values[0];
                 const [amount, price] = selectedValue.split(':');
+                const isRobloxPlus = amount === 'plus';
 
                 const modal = new ModalBuilder()
                     .setCustomId(`vilog_modal_order:${amount}:${price}`)
-                    .setTitle(`Order ${amount} Robux Vilog`);
+                    .setTitle(isRobloxPlus ? 'Order ROBLOX PLUS' : `Order ${amount} Robux Vilog`);
 
                 const usernameInput = new TextInputBuilder()
                     .setCustomId('roblox_username')
@@ -714,6 +718,39 @@ module.exports = {
                 return interaction.reply({ content: 'Silakan pilih Product yang ingin Anda ubah Pricelist-nya:', components: [row], ephemeral: true });
             }
 
+            if (customId === 'dashboard_qris') {
+                const member = interaction.member || await interaction.guild.members.fetch(interaction.user.id);
+                if (interaction.guild.ownerId !== interaction.user.id && !member.permissions.has('Administrator')) {
+                    return interaction.reply({ content: '❌ Anda tidak memiliki izin.', ephemeral: true });
+                }
+
+                try {
+                    const dm = await interaction.user.createDM();
+                    await interaction.reply({ content: '📩 Saya sudah mengirim instruksi upload QRIS lewat DM.', ephemeral: true });
+                    await dm.send('Silakan kirim **1 file gambar QRIS** di DM ini dalam 60 detik. File lama akan diganti otomatis.');
+
+                    const collected = await dm.awaitMessages({
+                        filter: message => message.author.id === interaction.user.id && message.attachments.some(attachment => attachment.contentType?.startsWith('image/')),
+                        max: 1,
+                        time: 60000
+                    });
+                    const message = collected.first();
+                    const attachment = message?.attachments.find(item => item.contentType?.startsWith('image/'));
+                    if (!attachment) return dm.send('❌ Upload QRIS dibatalkan atau waktu habis.');
+
+                    const response = await axios.get(attachment.url, { responseType: 'arraybuffer' });
+                    const qrPath = path.join(__dirname, '../../Public', 'LyraPayment.jpg');
+                    fs.writeFileSync(qrPath, Buffer.from(response.data));
+                    await dm.send('✅ QRIS berhasil diganti. Order baru akan memakai QRIS terbaru.');
+                } catch (err) {
+                    logger.error('[Dashboard] Error replacing QRIS:', err);
+                    if (!interaction.replied && !interaction.deferred) {
+                        return interaction.reply({ content: '❌ Gagal mengganti QRIS.', ephemeral: true });
+                    }
+                }
+                return;
+            }
+
             if (customId === 'dashboard_menu_gig') {
                 const member = interaction.member || await interaction.guild.members.fetch(interaction.user.id);
                 if (interaction.guild.ownerId !== interaction.user.id && !member.permissions.has('Administrator')) {
@@ -728,13 +765,23 @@ module.exports = {
                     .setTitle('GIG Config (Gift In Game)');
 
                 const rateInput = new TextInputBuilder()
-                    .setCustomId('input_gig_rate')
-                    .setLabel('GIG Rate (contoh: 90, 95)')
+                    .setCustomId('input_gig_rate_global')
+                    .setLabel('Rate GIG Reg Global')
                     .setStyle(TextInputStyle.Short)
-                    .setValue(config.gigRate ? config.gigRate.toString() : '90')
+                    .setValue((config.gigRateGlobal || config.gigRate || 90).toString())
                     .setRequired(true);
 
-                modal.addComponents(new ActionRowBuilder().addComponents(rateInput));
+                const indoRateInput = new TextInputBuilder()
+                    .setCustomId('input_gig_rate_indo')
+                    .setLabel('Rate GIG Reg Indo')
+                    .setStyle(TextInputStyle.Short)
+                    .setValue((config.gigRateIndo || config.gigRate || 90).toString())
+                    .setRequired(true);
+
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(rateInput),
+                    new ActionRowBuilder().addComponents(indoRateInput)
+                );
 
                 return await interaction.showModal(modal);
             }
@@ -1170,6 +1217,7 @@ module.exports = {
                         .setPlaceholder('Pilih Paket Robux');
 
                     packages.forEach(pkg => {
+                        if (pkg.amount === 0) return;
                         select.addOptions(
                             new StringSelectMenuOptionBuilder()
                                 .setLabel(`${pkg.amount.toLocaleString('id-ID')} Robux`)
@@ -1177,6 +1225,13 @@ module.exports = {
                                 .setValue(`${pkg.amount}:${pkg.price}`)
                         );
                     });
+
+                    select.addOptions(
+                        new StringSelectMenuOptionBuilder()
+                            .setLabel('ROBLOX PLUS')
+                            .setDescription('Harga: Rp 110.000')
+                            .setValue('plus:110000')
+                    );
 
                     const row = new ActionRowBuilder().addComponents(select);
                     return await interaction.editReply({ content: 'Silakan pilih paket Robux yang ingin Anda beli:', components: [row] });
@@ -1232,12 +1287,12 @@ module.exports = {
             }
 
             // Order Gift In Game (GIG) Button Trigger
-            if (customId === 'gig_order_now') {
+            if (customId === 'gig_order_now' || customId === 'gig_order_global' || customId === 'gig_order_indo') {
                 const check = await handleOrderClick('gig');
                 if (check !== 'proceed') return;
                 const modal = new ModalBuilder()
-                    .setCustomId('gig_modal_order')
-                    .setTitle('Order Gift In Game');
+                    .setCustomId(`gig_modal_order:${customId === 'gig_order_indo' ? 'indo' : 'global'}`)
+                    .setTitle(`Order GIG Reg ${customId === 'gig_order_indo' ? 'Indo' : 'Global'}`);
 
                 const gameLinkInput = new TextInputBuilder()
                     .setCustomId('gig_game_link')
@@ -2357,7 +2412,7 @@ module.exports = {
                             )
                             .addFields(
                                 { name: '📦 Produk', value: productName, inline: true },
-                                { name: '🎁 Paket', value: `\`${session.isCustom ? 'Custom' : session.amount.toLocaleString('id-ID') + ' Robux'}\``, inline: true },
+                                { name: '🎁 Paket', value: `\`${session.isCustom ? 'Custom' : (session.packageLabel || session.amount.toLocaleString('id-ID') + ' Robux')}\``, inline: true },
                                 ...(session.isCustom ? [{ name: '💎 Jumlah Robux', value: `\`${session.amount.toLocaleString('id-ID')} Robux\``, inline: true }] : []),
                                 { name: '💰 Total', value: `\`Rp ${session.price.toLocaleString('id-ID')}\``, inline: true },
                                 { name: '👤 Username', value: `\`${session.robloxUsername}\``, inline: true },
@@ -2978,8 +3033,9 @@ module.exports = {
                         price = Math.ceil(rawPrice / 500) * 500;
                     } else {
                         const [, amountStr, priceStr] = customId.split(':');
-                        amount = parseInt(amountStr);
+                        amount = amountStr === 'plus' ? 0 : parseInt(amountStr);
                         price = parseInt(priceStr);
+                        packageLabel = amountStr === 'plus' ? 'ROBLOX PLUS' : null;
                     }
 
                     const robloxUsername = interaction.fields.getTextInputValue('roblox_username');
@@ -3014,7 +3070,7 @@ module.exports = {
                             { name: 'User ID', value: `\`${userInfo.id}\``, inline: true },
                             { name: '━━━━━━━━━━━━━━━━━━━━━━━━━━━━', value: '📦 **Informasi Pesanan**', inline: false },
                             { name: 'Produk', value: `\`${isBoost ? (boostType === 'fishit' ? 'Boost Fishit' : 'Boost Kalb') : (isVisend ? 'Robux Via Send' : 'Robux Via Login')}\``, inline: true },
-                            { name: 'Paket', value: `\`${isBoost ? packageLabel : (isCustom ? 'Custom' : amount + ' Robux')}\``, inline: true },
+                            { name: 'Paket', value: `\`${isBoost ? packageLabel : (isCustom ? 'Custom' : (packageLabel || amount + ' Robux'))}\``, inline: true },
                             { name: 'Total Pembayaran', value: `\`Rp${price.toLocaleString('id-ID')}\``, inline: true },
                             { name: '━━━━━━━━━━━━━━━━━━━━━━━━━━━━', value: '\u200b', inline: false }
                         )
@@ -3085,7 +3141,7 @@ module.exports = {
             }
 
             // 2. Gift In Game (GIG) Modal Order Submission
-            if (customId === 'gig_modal_order') {
+            if (customId === 'gig_modal_order' || customId.startsWith('gig_modal_order:')) {
                 if (interaction.replied || interaction.deferred) return;
                 try {
                     await interaction.deferReply({ ephemeral: true });
@@ -3106,7 +3162,10 @@ module.exports = {
                     const amount = parseInt(amountStr);
                     const configService = require('../services/configService');
                     const config = await configService.getGlobalConfig();
-                    const rate = config.gigRate || 90;
+                    const gigRegion = customId.endsWith(':indo') ? 'indo' : 'global';
+                    const rate = gigRegion === 'indo'
+                        ? (config.gigRateIndo || config.gigRate || 90)
+                        : (config.gigRateGlobal || config.gigRate || 90);
                     
                     let price = amount * rate;
                     price = Math.ceil(price / 500) * 500;
@@ -3119,7 +3178,7 @@ module.exports = {
 
                     // Build Session
                     const session = {
-                        type: 'gig', amount, price, rate, gameLink, gamepassName,
+                        type: 'gig', amount, price, rate, gigRegion, gameLink, gamepassName,
                         robloxUsername: userInfo.username, robloxId: userInfo.id, displayName: userInfo.displayName, avatarUrl: userInfo.avatarUrl
                     };
 
@@ -3543,17 +3602,17 @@ module.exports = {
                     await interaction.reply({ content: '❌ Terjadi kesalahan saat menyimpan Inventory.', ephemeral: true });
                 }
             } else if (interaction.customId === 'modal_gig_config') {
-                const gigRateStr = interaction.fields.getTextInputValue('input_gig_rate');
-                const gigRate = parseInt(gigRateStr.replace(/[^0-9]/g, ''));
+                const globalRate = parseInt(interaction.fields.getTextInputValue('input_gig_rate_global').replace(/[^0-9]/g, ''));
+                const indoRate = parseInt(interaction.fields.getTextInputValue('input_gig_rate_indo').replace(/[^0-9]/g, ''));
                 
-                if (isNaN(gigRate) || gigRate <= 0) {
-                    return interaction.reply({ content: '❌ GIG Rate tidak valid. Harap masukkan angka yang benar (contoh: 90).', ephemeral: true });
+                if (isNaN(globalRate) || globalRate <= 0 || isNaN(indoRate) || indoRate <= 0) {
+                    return interaction.reply({ content: '❌ Rate GIG tidak valid. Masukkan angka Global dan Indo yang lebih besar dari 0.', ephemeral: true });
                 }
 
                 const configService = require('../services/configService');
                 
                 try {
-                    await configService.updateGlobalRate(gigRate, interaction.user.username, interaction.user.id);
+                    await configService.updateGigRates(globalRate, indoRate, interaction.user.username, interaction.user.id);
                     
                     // Force Voice Sync immediately for responsiveness
                     const voiceStatusService = require('../services/voiceStatusService');
