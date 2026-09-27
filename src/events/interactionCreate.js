@@ -733,12 +733,12 @@ module.exports = {
                 try {
                     const dm = await interaction.user.createDM();
                     await interaction.reply({ content: '📩 Saya sudah mengirim instruksi upload QRIS lewat DM.', ephemeral: true });
-                    await dm.send('Silakan kirim **1 file gambar QRIS** di DM ini dalam 60 detik. File lama akan diganti otomatis.');
+                    await dm.send('Silakan kirim **1 file gambar QRIS** di DM ini dalam 15 menit. File lama akan diganti otomatis.');
 
                     const collected = await dm.awaitMessages({
                         filter: message => message.author.id === interaction.user.id && message.attachments.size > 0,
                         max: 1,
-                        time: 300000
+                        time: 900000
                     });
                     const message = collected.first();
                     const attachment = message?.attachments.first();
