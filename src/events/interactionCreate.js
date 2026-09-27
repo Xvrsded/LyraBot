@@ -736,15 +736,19 @@ module.exports = {
                     await dm.send('Silakan kirim **1 file gambar QRIS** di DM ini dalam 60 detik. File lama akan diganti otomatis.');
 
                     const collected = await dm.awaitMessages({
-                        filter: message => message.author.id === interaction.user.id && message.attachments.some(isImageAttachment),
+                        filter: message => message.author.id === interaction.user.id && message.attachments.size > 0,
                         max: 1,
-                        time: 60000
+                        time: 300000
                     });
                     const message = collected.first();
-                    const attachment = message?.attachments.find(isImageAttachment);
+                    const attachment = message?.attachments.first();
                     if (!attachment) return dm.send('❌ Upload QRIS dibatalkan atau waktu habis.');
 
                     const response = await axios.get(attachment.url, { responseType: 'arraybuffer' });
+                    const downloadedType = response.headers['content-type'] || '';
+                    if (!isImageAttachment(attachment) && !downloadedType.startsWith('image/')) {
+                        return dm.send('❌ File yang dikirim bukan gambar. Silakan upload QRIS dalam format PNG, JPG, JPEG, atau WEBP.');
+                    }
                     const qrPath = path.join(__dirname, '../../Public', 'LyraPayment.jpg');
                     fs.writeFileSync(qrPath, Buffer.from(response.data));
                     await dm.send('✅ QRIS berhasil diganti. Order baru akan memakai QRIS terbaru.');
