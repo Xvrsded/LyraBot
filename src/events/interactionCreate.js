@@ -26,6 +26,12 @@ function createQrAttachment() {
     });
 }
 
+function isImageAttachment(attachment) {
+    if (!attachment) return false;
+    if (attachment.contentType?.startsWith('image/')) return true;
+    return /\.(png|jpe?g|webp|gif)$/i.test(attachment.name || attachment.url || '');
+}
+
 function buildReviewPanel(orderId) {
     const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`vouch_star_1_${orderId}`).setLabel('⭐').setStyle(ButtonStyle.Secondary),
@@ -730,12 +736,12 @@ module.exports = {
                     await dm.send('Silakan kirim **1 file gambar QRIS** di DM ini dalam 60 detik. File lama akan diganti otomatis.');
 
                     const collected = await dm.awaitMessages({
-                        filter: message => message.author.id === interaction.user.id && message.attachments.some(attachment => attachment.contentType?.startsWith('image/')),
+                        filter: message => message.author.id === interaction.user.id && message.attachments.some(isImageAttachment),
                         max: 1,
                         time: 60000
                     });
                     const message = collected.first();
-                    const attachment = message?.attachments.find(item => item.contentType?.startsWith('image/'));
+                    const attachment = message?.attachments.find(isImageAttachment);
                     if (!attachment) return dm.send('❌ Upload QRIS dibatalkan atau waktu habis.');
 
                     const response = await axios.get(attachment.url, { responseType: 'arraybuffer' });
