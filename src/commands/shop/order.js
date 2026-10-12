@@ -60,11 +60,23 @@ module.exports = {
                 const orderId = interaction.options.getString('orderid');
                 
                 if (subcommand === 'cancel') {
-                    const order = await Order.findOneAndDelete({ orderId });
+                    const order = await Order.findOneAndUpdate(
+                        { orderId, status: { $in: ['pending', 'paid'] } },
+                        { $set: { status: 'cancelled' } },
+                        { new: true }
+                    );
                     if (!order) {
-                        return interaction.editReply('❌ Order ID tidak ditemukan.');
+                        return interaction.editReply('❌ Order ID tidak ditemukan atau sudah tidak aktif.');
                     }
-                    await interaction.editReply(`✅ Pesanan **${orderId}** telah berhasil dibatalkan dan dihapus.`);
+                    if (order.channelId) {
+                        const channel = interaction.guild.channels.cache.get(order.channelId) || await interaction.guild.channels.fetch(order.channelId).catch(() => null);
+                        if (channel) {
+                            const ticketOrderService = require('../../services/ticketOrderService');
+                            await ticketOrderService.updateTicketEmbedAndComponents(channel, interaction.client);
+                            channel.send(`🗑️ Pesanan **${orderId}** (Rp ${(order.price || 0).toLocaleString('id-ID')}) telah dibatalkan oleh Staff <@${interaction.user.id}>. Total tagihan tiket telah disesuaikan.`);
+                        }
+                    }
+                    await interaction.editReply(`✅ Pesanan **${orderId}** telah berhasil dibatalkan dan total tiket telah diperbarui.`);
                 } else {
                     const order = await Order.findOneAndUpdate(
                         { orderId },

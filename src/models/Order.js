@@ -7,7 +7,7 @@ const OrderSchema = new mongoose.Schema({
     price: { type: Number, required: true }, // Total Bayar (Rounded)
     subtotal: { type: Number, default: 0 }, // Raw price before rounding
     rounding: { type: Number, default: 0 }, // Round up delta (+RpX)
-    status: { type: String, enum: ['pending', 'paid', 'success'], default: 'pending' },
+    status: { type: String, enum: ['pending', 'paid', 'success', 'cancelled'], default: 'pending' },
     channelId: { type: String, required: true }, // Ticket channel ID
     details: { type: mongoose.Schema.Types.Mixed, default: {} }, // Key-value map of form responses
     snapshot: { type: mongoose.Schema.Types.Mixed, default: {} }, // Price, package, and rate info at the time of creation

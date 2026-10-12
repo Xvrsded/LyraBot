@@ -357,8 +357,12 @@ async function createTicketFromSession(interaction, session, client) {
             new ButtonBuilder().setCustomId('ticket_close').setLabel('Close Ticket').setStyle(ButtonStyle.Danger)
         );
         
+        const row2 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('ticket_delete_order').setLabel('🗑️ Hapus Pesanan').setStyle(ButtonStyle.Secondary)
+        );
+
         if (isVisend) {
-            row.addComponents(
+            row2.addComponents(
                 new ButtonBuilder().setCustomId('tutorial_v2l').setLabel('🔐 Tutorial V2L').setStyle(ButtonStyle.Secondary),
                 new ButtonBuilder().setCustomId('tutorial_cek_limit').setLabel('📊 Cek Limit Robux').setStyle(ButtonStyle.Secondary)
             );
@@ -369,7 +373,7 @@ async function createTicketFromSession(interaction, session, client) {
         await channel.send(`${interaction.user} | ${staffMention} ${adminMention}`);
         await channel.send({ 
             embeds: [ticketEmbed], 
-            components: [row]
+            components: [row, row2]
         });
         await channel.send({
             content: '📷 **QR Code Pembayaran:**',
@@ -451,6 +455,49 @@ module.exports = {
         if (interaction.isStringSelectMenu()) {
             if (interaction.replied || interaction.deferred) return;
             const { customId } = interaction;
+
+            if (customId === 'ticket_select_delete_order') {
+                const ticketOrderService = require('../services/ticketOrderService');
+                const isStaff = await ticketOrderService.isStaff(interaction);
+                if (!isStaff) {
+                    return interaction.reply({ content: '❌ Hanya staf yang dapat menghapus pesanan.', ephemeral: true });
+                }
+
+                const selectedOrderId = interaction.values[0];
+                const orderToCancel = await Order.findOne({ orderId: selectedOrderId, channelId: interaction.channel.id });
+
+                if (!orderToCancel || orderToCancel.status === 'cancelled' || orderToCancel.status === 'success') {
+                    return interaction.update({ content: '❌ Pesanan tidak ditemukan atau sudah tidak aktif.', embeds: [], components: [] });
+                }
+
+                let detailText = `• **Order ID:** \`${orderToCancel.orderId}\`\n• **Produk:** \`${orderToCancel.productName}\`\n• **Harga:** \`Rp ${(orderToCancel.price || 0).toLocaleString('id-ID')}\``;
+                if (orderToCancel.details && orderToCancel.details.amount) {
+                    detailText += `\n• **Jumlah Robux:** \`${orderToCancel.details.amount} Robux\``;
+                }
+                if (orderToCancel.details && (orderToCancel.details.username || orderToCancel.details.robloxUsername)) {
+                    detailText += `\n• **Username Roblox:** \`${orderToCancel.details.username || orderToCancel.details.robloxUsername}\``;
+                }
+
+                const confirmEmbed = new EmbedBuilder()
+                    .setTitle('⚠️ Konfirmasi Hapus Pesanan')
+                    .setDescription(`Apakah Anda yakin ingin membatalkan pesanan berikut dari tiket ini?\n\n${detailText}\n\n*Tiket akan tetap terbuka dan total tagihan tiket akan otomatis disesuaikan.*`)
+                    .setColor('#f59e0b');
+
+                const confirmRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`ticket_confirm_delete_${selectedOrderId}`)
+                        .setLabel('Ya, Hapus Pesanan')
+                        .setEmoji('🗑️')
+                        .setStyle(ButtonStyle.Danger),
+                    new ButtonBuilder()
+                        .setCustomId('ticket_cancel_delete_order')
+                        .setLabel('Batal')
+                        .setEmoji('❌')
+                        .setStyle(ButtonStyle.Secondary)
+                );
+
+                return await interaction.update({ embeds: [confirmEmbed], components: [confirmRow] });
+            }
 
             if (customId === 'select_mm_fee') {
                 const mmRekberService = require('../services/mmRekberService');
@@ -1640,10 +1687,10 @@ module.exports = {
                     voiceStatusService.updateAllVoiceStatuses(interaction.client);
 
                     // Bulk support: Find all other pending orders in this ticket and mark them success too
-                    const pendingOrders = await Order.find({ channelId: interaction.channel.id, status: { $ne: 'success' } });
+                    const pendingOrders = await Order.find({ channelId: interaction.channel.id, status: { $in: ['pending', 'paid'] } });
                     if (pendingOrders.length > 0) {
                         await Order.updateMany(
-                            { channelId: interaction.channel.id, status: { $ne: 'success' } },
+                            { channelId: interaction.channel.id, status: { $in: ['pending', 'paid'] } },
                             { $set: { status: 'success' } }
                         );
                         
@@ -2063,6 +2110,120 @@ module.exports = {
                 }
             }
 
+            // Ticket Delete / Cancel Order (Staff Only)
+            if (customId === 'ticket_delete_order') {
+                await interaction.deferReply({ ephemeral: true });
+                const ticketOrderService = require('../services/ticketOrderService');
+                const isStaff = await ticketOrderService.isStaff(interaction);
+                if (!isStaff) {
+                    return interaction.editReply('❌ Hanya staf yang dapat menghapus/membatalkan pesanan di tiket ini.');
+                }
+
+                const activeOrders = await ticketOrderService.getActiveOrders(interaction.channel.id);
+                if (!activeOrders || activeOrders.length === 0) {
+                    return interaction.editReply('ℹ️ Tidak ada pesanan aktif (pending/paid) yang dapat dihapus pada tiket ini.');
+                }
+
+                const selectMenu = new StringSelectMenuBuilder()
+                    .setCustomId('ticket_select_delete_order')
+                    .setPlaceholder('Pilih pesanan yang ingin dihapus / dibatalkan...');
+
+                const options = activeOrders.map((ord, idx) => {
+                    let robuxOrPkg = '';
+                    if (ord.details) {
+                        if (ord.details.amount) robuxOrPkg = `${ord.details.amount} Robux`;
+                        else if (ord.details.package) robuxOrPkg = ord.details.package;
+                        else if (ord.details.packageLabel) robuxOrPkg = ord.details.packageLabel;
+                    }
+                    let userStr = (ord.details && (ord.details.username || ord.details.robloxUsername)) ? `User: ${ord.details.username || ord.details.robloxUsername}` : '';
+
+                    let desc = `Rp ${(ord.price || 0).toLocaleString('id-ID')}`;
+                    if (robuxOrPkg) desc += ` • ${robuxOrPkg}`;
+                    if (userStr) desc += ` • ${userStr}`;
+
+                    return {
+                        label: `#${idx + 1} - ${ord.orderId} (${ord.productName || 'Order'})`.substring(0, 100),
+                        description: desc.substring(0, 100),
+                        value: ord.orderId
+                    };
+                });
+
+                selectMenu.addOptions(options);
+
+                const menuRow = new ActionRowBuilder().addComponents(selectMenu);
+                const deleteEmbed = new EmbedBuilder()
+                    .setTitle('🗑️ Hapus Pesanan dari Tiket (Staff Only)')
+                    .setDescription(
+                        `Ditemukan **${activeOrders.length} pesanan aktif** di tiket ini.\n\n` +
+                        `Silakan pilih pesanan yang ingin dibatalkan pada menu pilihan di bawah.\n\n` +
+                        `⚠️ **Penting:**\n` +
+                        `• Menghapus pesanan **TIDAK AKAN** menutup tiket ini.\n` +
+                        `• Pesanan yang dihapus akan berstatus \`cancelled\` dan dikeluarkan dari rekap log transaksi.\n` +
+                        `• Total pembayaran tiket akan dihitung ulang secara otomatis.`
+                    )
+                    .setColor('#ef4444');
+
+                return await interaction.editReply({ embeds: [deleteEmbed], components: [menuRow] });
+            }
+
+            // Ticket Cancel Delete Order (Cancel Confirmation)
+            if (customId === 'ticket_cancel_delete_order') {
+                return await interaction.update({ content: '❌ Penghapusan pesanan dibatalkan.', embeds: [], components: [] });
+            }
+
+            // Ticket Confirm Delete Order
+            if (customId.startsWith('ticket_confirm_delete_')) {
+                await interaction.deferUpdate();
+                const ticketOrderService = require('../services/ticketOrderService');
+                const isStaff = await ticketOrderService.isStaff(interaction);
+                if (!isStaff) {
+                    return interaction.followUp({ content: '❌ Hanya staf yang dapat menghapus pesanan.', ephemeral: true });
+                }
+
+                const orderId = customId.replace('ticket_confirm_delete_', '');
+                const cancelledOrder = await ticketOrderService.cancelOrder(orderId, interaction.channel.id);
+
+                if (!cancelledOrder) {
+                    return interaction.editReply({ content: '❌ Pesanan tidak ditemukan atau sudah dibatalkan.', embeds: [], components: [] });
+                }
+
+                // Update main ticket embed and recalculate totals
+                const { remainingOrders, newTotal, newAmount } = await ticketOrderService.updateTicketEmbedAndComponents(interaction.channel, interaction.client);
+
+                // Announce in channel
+                let detailDesc = '';
+                if (cancelledOrder.details) {
+                    if (cancelledOrder.details.amount) detailDesc += `• **Jumlah Robux:** \`${cancelledOrder.details.amount} Robux\`\n`;
+                    if (cancelledOrder.details.username || cancelledOrder.details.robloxUsername) {
+                        detailDesc += `• **Username Roblox:** \`${cancelledOrder.details.username || cancelledOrder.details.robloxUsername}\`\n`;
+                    }
+                }
+
+                const noticeEmbed = new EmbedBuilder()
+                    .setTitle('🗑️ Pesanan Dibatalkan oleh Staff')
+                    .setDescription(
+                        `Staff <@${interaction.user.id}> telah membatalkan salah satu pesanan:\n\n` +
+                        `• **Order ID:** \`${cancelledOrder.orderId}\`\n` +
+                        `• **Produk:** \`${cancelledOrder.productName}\`\n` +
+                        detailDesc +
+                        `• **Nominal:** \`Rp ${(cancelledOrder.price || 0).toLocaleString('id-ID')}\`\n\n` +
+                        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                        `💰 **Total Tagihan Tiket Terbaru:** \`Rp ${newTotal.toLocaleString('id-ID')}\` (${newAmount.toLocaleString('id-ID')} Robux)\n` +
+                        `📌 **Sisa Pesanan Aktif:** **${remainingOrders.length} pesanan**\n\n` +
+                        `*(Pesan rincian pesanan di bagian atas tiket telah diperbarui otomatis. Tiket tetap aktif.)*`
+                    )
+                    .setColor('#ef4444')
+                    .setTimestamp();
+
+                await interaction.channel.send({ embeds: [noticeEmbed] });
+
+                return await interaction.editReply({
+                    content: `✅ Pesanan **${cancelledOrder.orderId}** (Rp ${(cancelledOrder.price || 0).toLocaleString('id-ID')}) berhasil dihapus!\nSisa pesanan aktif: **${remainingOrders.length}**.\nTotal tagihan baru: **Rp ${newTotal.toLocaleString('id-ID')}**.`,
+                    embeds: [],
+                    components: []
+                });
+            }
+
             // Ticket Close Confirmation
             if (customId === 'ticket_close') {
                 await interaction.deferReply({ ephemeral: true });
@@ -2453,8 +2614,12 @@ module.exports = {
                         new ButtonBuilder().setCustomId('ticket_close').setLabel('Close Ticket').setStyle(ButtonStyle.Danger)
                     );
                     
+                    const row2 = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId('ticket_delete_order').setLabel('🗑️ Hapus Pesanan').setStyle(ButtonStyle.Secondary)
+                    );
+
                     if (isVisend) {
-                        row.addComponents(
+                        row2.addComponents(
                             new ButtonBuilder().setCustomId('tutorial_v2l').setLabel('🔐 Tutorial V2L').setStyle(ButtonStyle.Secondary),
                             new ButtonBuilder().setCustomId('tutorial_cek_limit').setLabel('📊 Cek Limit Robux').setStyle(ButtonStyle.Secondary)
                         );
@@ -2465,7 +2630,7 @@ module.exports = {
                     await channel.send(`${interaction.user} | ${staffMention} ${adminMention}`);
                     await channel.send({ 
                         embeds: [ticketEmbed], 
-                        components: [row]
+                        components: [row, row2]
                     });
                     await channel.send({
                         content: '📷 **QR Code Pembayaran:**',
@@ -2601,7 +2766,24 @@ module.exports = {
                                     
                                     newEmbed.setFields(updatedFields);
                                 }
-                                await botMsg.edit({ embeds: [newEmbed] });
+                                let updatedComponents = botMsg.components.map(r => ActionRowBuilder.from(r));
+                                const hasDeleteBtn = updatedComponents.some(r => r.components.some(c => c.data.custom_id === 'ticket_delete_order'));
+                                if (!hasDeleteBtn) {
+                                    let added = false;
+                                    for (const r of updatedComponents) {
+                                        if (r.components.length < 5) {
+                                            r.addComponents(new ButtonBuilder().setCustomId('ticket_delete_order').setLabel('🗑️ Hapus Pesanan').setStyle(ButtonStyle.Secondary));
+                                            added = true;
+                                            break;
+                                        }
+                                    }
+                                    if (!added && updatedComponents.length < 5) {
+                                        updatedComponents.push(new ActionRowBuilder().addComponents(
+                                            new ButtonBuilder().setCustomId('ticket_delete_order').setLabel('🗑️ Hapus Pesanan').setStyle(ButtonStyle.Secondary)
+                                        ));
+                                    }
+                                }
+                                await botMsg.edit({ embeds: [newEmbed], components: updatedComponents });
                             }
                         } catch (e) {
                             console.error('[BulkOrder] Error updating original embed', e);
