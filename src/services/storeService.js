@@ -127,7 +127,11 @@ async function buildDashboardMessage(client) {
         new ButtonBuilder()
             .setCustomId('dashboard_qris')
             .setLabel('💳 Ganti QRIS')
-            .setStyle(ButtonStyle.Primary)
+            .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+            .setCustomId('dashboard_menu_pricelist')
+            .setLabel('📋 Kelola Pricelist')
+            .setStyle(ButtonStyle.Success)
     );
 
     return { embeds: [embed], components: [row1, row2, row3] };

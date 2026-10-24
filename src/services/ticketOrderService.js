@@ -63,7 +63,7 @@ class TicketOrderService {
 
         let botMsg = null;
         try {
-            const messages = await channel.messages.fetch({ limit: 50 });
+            const messages = await channel.messages.fetch({ limit: 100 });
             botMsg = messages.find(m => m.author.id === client.user.id && m.embeds.length > 0 && m.components.length > 0);
 
             if (botMsg) {
@@ -75,15 +75,34 @@ class TicketOrderService {
                     let updatedFields = oldEmbed.fields.filter(f => !f.name.toLowerCase().includes('tambahan ke-'));
 
                     if (remainingOrders.length > 0) {
+                        const primaryOrder = remainingOrders[0];
+                        const primaryUser = primaryOrder.details?.username || primaryOrder.details?.robloxUsername;
+                        const primaryGamepass = primaryOrder.details?.gamepassName;
+                        const primaryGameLink = primaryOrder.details?.gameLink;
+
                         for (let i = 0; i < updatedFields.length; i++) {
                             const fname = updatedFields[i].name.toLowerCase();
+                            // Update robux amount
                             if (fname.includes('paket') || fname.includes('jumlah robux') || fname.includes('harga gamepass') || fname.includes('jumlah')) {
                                 if (!updatedFields[i].value.includes('Custom')) {
                                     updatedFields[i].value = `\`${newAmount.toLocaleString('id-ID')} Robux\``;
                                 }
                             }
-                            if (fname.includes('total')) {
+                            // Update total price
+                            if (fname.includes('total') || fname.includes('harga')) {
                                 updatedFields[i].value = `\`Rp ${newTotal.toLocaleString('id-ID')}\``;
+                            }
+                            // Update primary gamepass name if changed
+                            if (fname.includes('gamepass') && primaryGamepass) {
+                                updatedFields[i].value = `\`\`\`text\n${primaryGamepass}\n\`\`\``;
+                            }
+                            // Update primary game link if changed
+                            if ((fname.includes('game') || fname.includes('map')) && primaryGameLink) {
+                                updatedFields[i].value = `\`${primaryGameLink}\``;
+                            }
+                            // Update primary username if changed
+                            if (fname.includes('username') && primaryUser) {
+                                updatedFields[i].value = `\`${primaryUser}\``;
                             }
                         }
 
@@ -115,7 +134,7 @@ class TicketOrderService {
                         // 0 remaining orders
                         for (let i = 0; i < updatedFields.length; i++) {
                             const fname = updatedFields[i].name.toLowerCase();
-                            if (fname.includes('total')) {
+                            if (fname.includes('total') || fname.includes('harga')) {
                                 updatedFields[i].value = `\`Rp 0\``;
                             }
                             if (fname.includes('status')) {
@@ -141,23 +160,25 @@ class TicketOrderService {
                 // Update components so delivery & username copy buttons point to new active primary order
                 let updatedComponents = botMsg.components.map(actionRow => {
                     const newRow = ActionRowBuilder.from(actionRow);
-                    newRow.components = newRow.components.map(comp => {
+                    const updatedButtons = actionRow.components.map(comp => {
                         if (remainingOrders.length > 0) {
                             const primaryOrder = remainingOrders[0];
-                            if (comp.data.custom_id && comp.data.custom_id.startsWith('robux_deliver_')) {
+                            const cId = comp.customId || comp.data?.custom_id;
+                            if (cId && cId.startsWith('robux_deliver_')) {
                                 return ButtonBuilder.from(comp).setCustomId(`robux_deliver_${primaryOrder.orderId}`);
                             }
-                            if (comp.data.custom_id && comp.data.custom_id.startsWith('copy_user_') && (primaryOrder.details.username || primaryOrder.details.robloxUsername)) {
+                            if (cId && cId.startsWith('copy_user_') && primaryOrder.details && (primaryOrder.details.username || primaryOrder.details.robloxUsername)) {
                                 return ButtonBuilder.from(comp).setCustomId(`copy_user_${primaryOrder.orderId}`);
                             }
                         }
                         return ButtonBuilder.from(comp);
                     });
+                    newRow.setComponents(updatedButtons);
                     return newRow;
                 });
 
                 // Ensure ticket_delete_order button is present in components
-                const hasDeleteBtn = updatedComponents.some(r => r.components.some(c => c.data.custom_id === 'ticket_delete_order'));
+                const hasDeleteBtn = updatedComponents.some(r => r.components.some(c => (c.data?.custom_id || c.customId) === 'ticket_delete_order'));
                 if (!hasDeleteBtn) {
                     let added = false;
                     for (const r of updatedComponents) {

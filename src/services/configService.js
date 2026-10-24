@@ -9,7 +9,8 @@ const logger = require('../utils/logger');
 // Dashboard Config Cache Placeholder (Memory for now, Redis-ready)
 const dashboardCache = {
     globalConfig: null,
-    packages: {}
+    packages: {},
+    qris: null
 };
 
 function normalizeProductType(type) {
@@ -465,6 +466,86 @@ class ConfigService {
 
         await this._triggerSyncRefreshers();
         return config;
+    }
+
+    async getQrisData(forceRefresh = false) {
+        if (!forceRefresh && dashboardCache.qris && dashboardCache.qris.buffer) {
+            return dashboardCache.qris;
+        }
+
+        const fs = require('fs');
+        const path = require('path');
+        const qrPath = path.join(__dirname, '../../Public', 'LyraPayment.jpg');
+
+        const config = await this.getGlobalConfig(forceRefresh);
+        if (config && config.qrisImageBase64) {
+            const buffer = Buffer.from(config.qrisImageBase64, 'base64');
+            const mimeType = config.qrisMimeType || 'image/jpeg';
+            const extension = mimeType.includes('png') ? '.png' : (mimeType.includes('webp') ? '.webp' : '.jpg');
+            dashboardCache.qris = { buffer, mimeType, extension };
+
+            // Sync with local disk backup
+            try {
+                fs.writeFileSync(qrPath, buffer);
+            } catch (err) {
+                logger.warn('[ConfigService] Failed to write QRIS disk backup:', err.message);
+            }
+            return dashboardCache.qris;
+        }
+
+        // Fallback: If not in DB yet but exists on disk, migrate to DB
+        if (fs.existsSync(qrPath)) {
+            try {
+                const diskBuffer = fs.readFileSync(qrPath);
+                if (diskBuffer && diskBuffer.length > 0) {
+                    config.qrisImageBase64 = diskBuffer.toString('base64');
+                    config.qrisMimeType = 'image/jpeg';
+                    config.qrisUpdatedAt = new Date();
+                    await config.save();
+                    dashboardCache.globalConfig = config;
+                    dashboardCache.qris = { buffer: diskBuffer, mimeType: 'image/jpeg', extension: '.jpg' };
+                    logger.info('[ConfigService] Auto-migrated existing Public/LyraPayment.jpg to MongoDB.');
+                    return dashboardCache.qris;
+                }
+            } catch (err) {
+                logger.warn('[ConfigService] Failed to read disk QRIS for auto-migration:', err.message);
+            }
+        }
+
+        return null;
+    }
+
+    async updateQris(buffer, mimeType = 'image/jpeg', author = 'System', userId = null) {
+        const fs = require('fs');
+        const path = require('path');
+        const qrPath = path.join(__dirname, '../../Public', 'LyraPayment.jpg');
+
+        const config = await this.getGlobalConfig(true);
+        config.qrisImageBase64 = buffer.toString('base64');
+        config.qrisMimeType = mimeType;
+        config.qrisUpdatedAt = new Date();
+        config.lastUpdatedBy = author;
+        config.configVersion += 1;
+
+        await config.save();
+        dashboardCache.globalConfig = config;
+
+        const extension = mimeType.includes('png') ? '.png' : (mimeType.includes('webp') ? '.webp' : '.jpg');
+        dashboardCache.qris = { buffer, mimeType, extension };
+
+        try {
+            fs.writeFileSync(qrPath, buffer);
+        } catch (err) {
+            logger.warn('[ConfigService] Failed to update QRIS disk backup:', err.message);
+        }
+
+        await auditService.info('Dashboard', 'QRIS_UPDATE', {
+            userId: userId,
+            metadata: { mimeType, author, sizeBytes: buffer.length }
+        });
+
+        await this._triggerSyncRefreshers();
+        return dashboardCache.qris;
     }
 
     // ==========================================

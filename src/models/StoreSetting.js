@@ -52,7 +52,14 @@ const storeSettingSchema = new mongoose.Schema({
     // Config Versioning
     configVersion: { type: Number, default: 1 },
     lastUpdatedBy: { type: String, default: 'System' },
-    lastUpdatedAt: { type: Date, default: Date.now }
+    lastUpdatedAt: { type: Date, default: Date.now },
+    // QRIS Persistent Storage
+    qrisImageBase64: { type: String, default: null },
+    qrisMimeType: { type: String, default: 'image/jpeg' },
+    qrisUpdatedAt: { type: Date, default: null },
+    // Pricelist Tracking
+    pricelistChannelId: { type: String, default: '1562746683081752648' },
+    pricelistMessageId: { type: String, default: null }
 }, { timestamps: true });
 
 module.exports = mongoose.model('StoreSetting', storeSettingSchema);

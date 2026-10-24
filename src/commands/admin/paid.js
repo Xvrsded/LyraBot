@@ -18,27 +18,32 @@ module.exports = {
             return interaction.editReply('❌ Command ini hanya dapat digunakan di dalam channel Ticket.');
         }
 
-        // ATOMIC UPDATE: Pastikan tiket masih pending
-        const updatedOrder = await Order.findOneAndUpdate(
-            { channelId: interaction.channel.id, status: 'pending' },
-            { $set: { status: 'paid' } },
-            { new: true }
-        );
+        // ATOMIC UPDATE: Pastikan semua pesanan yang pending di tiket ini diubah menjadi paid
+        const pendingOrders = await Order.find({ channelId: interaction.channel.id, status: 'pending' });
 
-        if (!updatedOrder) {
-            const existing = await Order.findOne({ channelId: interaction.channel.id });
-            if (!existing) {
+        if (!pendingOrders || pendingOrders.length === 0) {
+            const existing = await Order.find({ channelId: interaction.channel.id });
+            if (!existing || existing.length === 0) {
                 return interaction.editReply('❌ Order tidak ditemukan untuk channel ini.');
             }
-            return interaction.editReply(`❌ Order ini sudah tidak pending. Status saat ini: **${existing.status.toUpperCase()}**.`);
+            const currentStatuses = existing.map(e => e.status).join(', ');
+            return interaction.editReply(`❌ Tidak ada pesanan yang berstatus pending di channel ini. Status saat ini: **${currentStatuses.toUpperCase()}**.`);
         }
+
+        await Order.updateMany(
+            { channelId: interaction.channel.id, status: 'pending' },
+            { $set: { status: 'paid' } }
+        );
+
+        const totalVerifiedPrice = pendingOrders.reduce((sum, o) => sum + (o.price || 0), 0);
+        const primaryUserId = pendingOrders[0].userId;
 
         // Update Voice Status
         const voiceStatusService = require('../../services/voiceStatusService');
         voiceStatusService.updateAllVoiceStatuses(interaction.client);
 
         try {
-            const messages = await interaction.channel.messages.fetch({ limit: 50 });
+            const messages = await interaction.channel.messages.fetch({ limit: 100 });
             const botMsg = messages.find(m => m.author.id === interaction.client.user.id && m.embeds.length > 0 && m.components.length > 0);
             
             if (botMsg) {
@@ -71,16 +76,17 @@ module.exports = {
         }
 
         // Send success feedback to the channel so the customer sees it
+        const orderInfo = pendingOrders.length > 1 ? ` (${pendingOrders.length} pesanan)` : '';
         await interaction.channel.send(
-            `✅ <@${updatedOrder.userId}> Bukti pembayaran telah diverifikasi secara manual oleh Staff.\n\n` +
+            `✅ <@${primaryUserId}> Bukti pembayaran telah diverifikasi secara manual oleh Staff.\n\n` +
             `Terima kasih.\n\n` +
             `Nominal yang telah diverifikasi:\n` +
-            `💰 **Rp ${updatedOrder.price.toLocaleString('id-ID')}**\n\n` +
+            `💰 **Rp ${totalVerifiedPrice.toLocaleString('id-ID')}**${orderInfo}\n\n` +
             `Status pesanan Anda telah diperbarui menjadi:\n` +
             `🟢 **Paid**\n\n` +
             `Staff LyraBlox akan segera memproses pesanan Anda.`
         );
 
-        return interaction.editReply('✅ Berhasil memverifikasi pembayaran.');
+        return interaction.editReply(`✅ Berhasil memverifikasi pembayaran untuk ${pendingOrders.length} pesanan.`);
     }
 };

@@ -16,11 +16,22 @@ const activeClosures = new Set();
 const fs = require('fs');
 const path = require('path');
 
-function createQrAttachment() {
-    const qrPath = path.join(__dirname, '../../Public', 'LyraPayment.jpg');
-
-    if (!fs.existsSync(qrPath)) throw new Error('QR payment asset tidak ditemukan di folder Public.');
+async function createQrAttachment() {
+    const configService = require('../services/configService');
     const { AttachmentBuilder } = require('discord.js');
+    try {
+        const qrisData = await configService.getQrisData();
+        if (qrisData && qrisData.buffer) {
+            return new AttachmentBuilder(qrisData.buffer, {
+                name: `qris_${Date.now()}${qrisData.extension || '.jpg'}`
+            });
+        }
+    } catch (e) {
+        logger.warn('[createQrAttachment] Failed to load QRIS from DB:', e.message);
+    }
+
+    const qrPath = path.join(__dirname, '../../Public', 'LyraPayment.jpg');
+    if (!fs.existsSync(qrPath)) throw new Error('QR payment asset tidak ditemukan di folder Public.');
     return new AttachmentBuilder(qrPath, {
         name: `qris_${Date.now()}${path.extname(qrPath)}`
     });
@@ -173,7 +184,7 @@ async function createTicketFromSession(interaction, session, client) {
         // Update Voice Status
         const voiceStatusService = require('../services/voiceStatusService');
         voiceStatusService.updateAllVoiceStatuses(interaction.client);
-        const qrAttachment = createQrAttachment();
+        const qrAttachment = await createQrAttachment();
 
         let ticketEmbed = new EmbedBuilder()
             .setTitle('🔍 Konfirmasi Pemesanan Robux')
@@ -499,6 +510,11 @@ module.exports = {
                 return await interaction.update({ embeds: [confirmEmbed], components: [confirmRow] });
             }
 
+            if (customId.startsWith('select_pricelist_')) {
+                const pricelistHandler = require('./pricelistInteractionHandler');
+                return await pricelistHandler.handleSelectMenu(interaction);
+            }
+
             if (customId === 'select_mm_fee') {
                 const mmRekberService = require('../services/mmRekberService');
                 return await mmRekberService.handleFeeSelection(interaction);
@@ -716,6 +732,12 @@ module.exports = {
 
 
 
+            // Pricelist User & Admin Actions
+            if (customId.startsWith('pricelist_') || customId === 'dashboard_menu_pricelist') {
+                const pricelistHandler = require('./pricelistInteractionHandler');
+                return await pricelistHandler.handleButton(interaction);
+            }
+
             // Dashboard Management Menus
             if (customId === 'dashboard_menu_inventory') {
                 const member = interaction.member || await interaction.guild.members.fetch(interaction.user.id);
@@ -796,9 +818,12 @@ module.exports = {
                     if (!isImageAttachment(attachment) && !downloadedType.startsWith('image/')) {
                         return dm.send('❌ File yang dikirim bukan gambar. Silakan upload QRIS dalam format PNG, JPG, JPEG, atau WEBP.');
                     }
-                    const qrPath = path.join(__dirname, '../../Public', 'LyraPayment.jpg');
-                    fs.writeFileSync(qrPath, Buffer.from(response.data));
-                    await dm.send('✅ QRIS berhasil diganti. Order baru akan memakai QRIS terbaru.');
+                    const configService = require('../services/configService');
+                    const qrisBuffer = Buffer.from(response.data);
+                    const mimeType = downloadedType.startsWith('image/') ? downloadedType : (attachment.contentType || 'image/jpeg');
+
+                    await configService.updateQris(qrisBuffer, mimeType, interaction.user.tag, interaction.user.id);
+                    await dm.send('✅ QRIS berhasil diganti dan disimpan permanen di database. Order baru akan memakai QRIS terbaru.');
                 } catch (err) {
                     logger.error('[Dashboard] Error replacing QRIS:', err);
                     if (!interaction.replied && !interaction.deferred) {
@@ -1666,9 +1691,9 @@ module.exports = {
                     if (!isAuthorized) {
                         return interaction.editReply('❌ Anda tidak memiliki izin untuk memproses pesanan ini.');
                     }
-                    // ATOMIC UPDATE: Mengunci transaksi agar tidak terjadi double processing
+                    // ATOMIC UPDATE: Mengunci transaksi agar tidak terjadi double processing (hanya pending atau paid)
                     let order = await Order.findOneAndUpdate(
-                        { orderId, status: { $ne: 'success' } },
+                        { orderId, status: { $in: ['pending', 'paid'] } },
                         { $set: { status: 'success' } },
                         { new: true }
                     );
@@ -1677,8 +1702,12 @@ module.exports = {
                         const existing = await Order.findOne({ orderId });
                         if (!existing) {
                             return interaction.editReply('❌ Data pesanan tidak ditemukan di database.');
-                        } else {
+                        } else if (existing.status === 'cancelled') {
+                            return interaction.editReply('❌ Pesanan ini telah dibatalkan / dihapus sebelumnya.');
+                        } else if (existing.status === 'success') {
                             return interaction.editReply('❌ Pesanan ini sudah diselesaikan sebelumnya.');
+                        } else {
+                            return interaction.editReply(`❌ Status pesanan tidak valid: ${existing.status}`);
                         }
                     }
 
@@ -2534,7 +2563,7 @@ module.exports = {
                     // Update Voice Status
                     const voiceStatusService = require('../services/voiceStatusService');
                     voiceStatusService.updateAllVoiceStatuses(interaction.client);
-                    const qrAttachment = createQrAttachment();
+                    const qrAttachment = await createQrAttachment();
 
                     let ticketEmbed;
                     if (isGIG) {
@@ -2789,7 +2818,7 @@ module.exports = {
                             console.error('[BulkOrder] Error updating original embed', e);
                         }
 
-                        const qrAttachment = createQrAttachment();
+                        const qrAttachment = await createQrAttachment();
                         
                         const gigDetails = session.type === 'gig' ? `**Game / Map:** \`${session.gameLink || '-'}\`\n**Gamepass:** \`${session.gamepassName || '-'}\`\n` : '';
                         const bulkNotifyEmbed = new EmbedBuilder()
@@ -3765,6 +3794,11 @@ module.exports = {
         }
 
         if (interaction.isModalSubmit()) {
+            if (interaction.customId.startsWith('modal_pricelist_')) {
+                const pricelistHandler = require('./pricelistInteractionHandler');
+                return await pricelistHandler.handleModalSubmit(interaction);
+            }
+
             if (interaction.customId === 'modal_inventory_management') {
                 const gigStockStr = interaction.fields.getTextInputValue('input_gig_stock');
                 const sendStockStr = interaction.fields.getTextInputValue('input_send_stock');
