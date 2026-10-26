@@ -140,6 +140,7 @@ module.exports = {
 
         setTimeout(() => {
             const dashboardService = require('../services/dashboardService');
+            const pricelistService = require('../services/pricelistService');
             let dashboardSyncInProgress = false;
             const syncDashboard = async () => {
                 if (dashboardSyncInProgress) return;
@@ -152,6 +153,9 @@ module.exports = {
             };
 
             syncDashboard();
+            pricelistService.publishPanel(client, '1562746683081752648').catch(err => {
+                logger.warn('[Ready Event] Pricelist panel sync failed:', err.message);
+            });
             setInterval(syncDashboard, 60 * 1000);
             
             const leaderboardService = require('../services/leaderboardService');

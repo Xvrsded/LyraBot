@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const { getStoreSetting, buildDashboardMessage } = require('../../services/storeService');
+const dashboardService = require('../../services/dashboardService');
 const logger = require('../../utils/logger');
 
 module.exports = {
@@ -12,16 +12,7 @@ module.exports = {
         await interaction.deferReply({ ephemeral: true });
 
         try {
-            const dashboardData = await buildDashboardMessage(interaction.client);
-            
-            // Send to channel
-            const message = await interaction.channel.send(dashboardData);
-
-            // Save to DB
-            const setting = await getStoreSetting();
-            setting.dashboardMessageId = message.id;
-            setting.dashboardChannelId = interaction.channel.id;
-            await setting.save();
+            await dashboardService.forceDeploy(interaction);
 
             return interaction.editReply('✅ Dashboard berhasil diinisialisasi di channel ini.');
         } catch (error) {

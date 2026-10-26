@@ -1,5 +1,6 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const DashboardSetting = require('../models/DashboardSetting');
+const StoreSetting = require('../models/StoreSetting');
 const { buildDashboardMessage } = require('./storeService');
 const logger = require('../utils/logger');
 
@@ -26,9 +27,9 @@ class DashboardService {
 
             const guildId = channel.guild.id;
 
-            // 2. Find dashboard setting in DB
             let doc = await DashboardSetting.findOne({ type: this.TYPE });
             let message = null;
+            const storeSetting = await StoreSetting.findOne();
 
             if (doc) {
                 // Check if message still exists in the channel
@@ -39,6 +40,24 @@ class DashboardService {
                     doc = null;
                 } else {
                     logger.info('[DashboardService] Message Dashboard ditemukan. Melakukan update konten...');
+                }
+            }
+
+            if (!message && storeSetting?.dashboardMessageId &&
+                (!storeSetting.dashboardChannelId || storeSetting.dashboardChannelId === this.CHANNEL_ID)) {
+                message = await channel.messages.fetch(storeSetting.dashboardMessageId).catch(() => null);
+                if (message) {
+                    doc = await DashboardSetting.findOneAndUpdate(
+                        { type: this.TYPE },
+                        {
+                            guildId,
+                            channelId: this.CHANNEL_ID,
+                            messageId: message.id,
+                            type: this.TYPE
+                        },
+                        { upsert: true, new: true, setDefaultsOnInsert: true }
+                    );
+                    logger.info('[DashboardService] Legacy dashboard message adopted for synchronization.');
                 }
             }
 
@@ -57,8 +76,17 @@ class DashboardService {
                     messageId: newMsg.id,
                     type: this.TYPE
                 });
+                await StoreSetting.findOneAndUpdate({}, {
+                    dashboardMessageId: newMsg.id,
+                    dashboardChannelId: this.CHANNEL_ID
+                }, { upsert: true });
                 logger.info('[DashboardService] New Dashboard successfully deployed and saved to DB.');
             }
+
+            await StoreSetting.findOneAndUpdate({}, {
+                dashboardMessageId: message?.id || doc?.messageId,
+                dashboardChannelId: this.CHANNEL_ID
+            }, { upsert: true });
         } catch (error) {
             logger.error('[DashboardService Error] Failed to sync/deploy dashboard:', error);
         }
@@ -94,6 +122,11 @@ class DashboardService {
             messageId: newMsg.id,
             type: this.TYPE
         });
+
+        await StoreSetting.findOneAndUpdate({}, {
+            dashboardMessageId: newMsg.id,
+            dashboardChannelId: this.CHANNEL_ID
+        }, { upsert: true });
 
         return newMsg;
     }

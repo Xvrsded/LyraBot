@@ -3852,6 +3852,9 @@ module.exports = {
                     const robuxService = require('../services/robuxService');
                     await robuxService.syncGigPanel(interaction.client);
 
+                    const pricelistService = require('../services/pricelistService');
+                    await pricelistService.publishPanel(interaction.client, '1562746683081752648');
+
                     await interaction.update({ embeds: newDashboard.embeds, components: newDashboard.components });
                 } catch (err) {
                     logger.error('[Dashboard] Error updating GIG Rate:', err);
