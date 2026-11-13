@@ -1370,8 +1370,6 @@ module.exports = {
 
             // Order Gift In Game (GIG) Button Trigger
             if (customId === 'gig_order_now' || customId === 'gig_order_global' || customId === 'gig_order_indo') {
-                const check = await handleOrderClick('gig');
-                if (check !== 'proceed') return;
                 const modal = new ModalBuilder()
                     .setCustomId(`gig_modal_order:${customId === 'gig_order_indo' ? 'indo' : 'global'}`)
                     .setTitle(`Order GIG Reg ${customId === 'gig_order_indo' ? 'Indo' : 'Global'}`);
@@ -1552,10 +1550,6 @@ module.exports = {
                 }
             }
             if (customId === 'continue_order_gig') {
-                const setting = await getStoreSetting();
-                if (setting.products && !setting.products.gift_in_game.enabled) {
-                    return interaction.reply({ content: '❌ Mohon maaf, layanan ini sedang tidak menerima pesanan.', ephemeral: true }).catch(() => {});
-                }
                 const modal = new ModalBuilder()
                     .setCustomId('gig_modal_order')
                     .setTitle('Order Gift In Game');
@@ -3372,6 +3366,11 @@ module.exports = {
                 }
 
                 try {
+                    const setting = await getStoreSetting();
+                    if (setting.products?.gift_in_game?.enabled === false) {
+                        return interaction.editReply('❌ Mohon maaf, layanan ini sedang tidak menerima pesanan.');
+                    }
+
                     const gameLink = interaction.fields.getTextInputValue('gig_game_link');
                     const gamepassName = interaction.fields.getTextInputValue('gig_gamepass_name');
                     const amountStr = interaction.fields.getTextInputValue('gig_robux_amount');
@@ -3959,7 +3958,9 @@ module.exports = {
                 } else {
                     await interaction.followUp(replyOpts).catch(() => {});
                 }
-            } catch (e) {}
+            } catch (e) {
+                logger.error('[InteractionCreate] Unhandled interaction error:', e);
+            }
         }
     }
 };

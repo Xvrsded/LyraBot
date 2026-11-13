@@ -316,7 +316,11 @@ async function syncGigPanel(client) {
 
         try {
             const messages = await channel.messages.fetch({ limit: 50 });
-            const oldMessages = messages.filter(m => m.author.id === client.user.id && m.components.some(r => r.components.some(c => c.customId === 'gig_order_now')));
+            const gigButtonIds = new Set(['gig_order_now', 'gig_order_global', 'gig_order_indo']);
+            const oldMessages = messages.filter(m =>
+                m.author.id === client.user.id &&
+                m.components.some(r => r.components.some(c => gigButtonIds.has(c.customId)))
+            );
             for (const m of oldMessages.values()) await m.delete().catch(() => {});
         } catch (err) {}
 
