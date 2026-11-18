@@ -19,12 +19,16 @@ const ELIGIBLE_ROLE_ID = '1534989509857509426';
 async function seedCopayPackages() {
     try {
         const defaults = [
-            { type: 'copay', amount: 500, price: 65000, sortOrder: 1 },
-            { type: 'copay', amount: 1000, price: 130000, sortOrder: 2 },
-            { type: 'copay', amount: 1500, price: 195000, sortOrder: 3 },
-            { type: 'copay', amount: 2000, price: 260000, sortOrder: 4 },
-            { type: 'copay', amount: 2500, price: 325000, sortOrder: 5 },
-            { type: 'copay', amount: 5000, price: 650000, sortOrder: 6 }
+            { type: 'copay', amount: 500, price: 70000, sortOrder: 1 },
+            { type: 'copay', amount: 1000, price: 140000, sortOrder: 2 },
+            { type: 'copay', amount: 1500, price: 210000, sortOrder: 3 },
+            { type: 'copay', amount: 2000, price: 280000, sortOrder: 4 },
+            { type: 'copay', amount: 2500, price: 350000, sortOrder: 5 },
+            { type: 'copay', amount: 3000, price: 420000, sortOrder: 6 },
+            { type: 'copay', amount: 3500, price: 490000, sortOrder: 7 },
+            { type: 'copay', amount: 4000, price: 560000, sortOrder: 8 },
+            { type: 'copay', amount: 4500, price: 630000, sortOrder: 9 },
+            { type: 'copay', amount: 5000, price: 700000, sortOrder: 10 }
         ];
         const targetAmounts = defaults.map(pkg => pkg.amount);
         await Promise.all(defaults.map(pkg => RobuxPackage.findOneAndUpdate(
@@ -40,12 +44,16 @@ async function seedCopayPackages() {
 
 function buildCopayEmbed() {
     const priceList =
-        '500⏣     = Rp65.000\n' +
-        '1.000⏣   = Rp130.000\n' +
-        '1.500⏣   = Rp195.000\n' +
-        '2.000⏣   = Rp260.000\n' +
-        '2.500⏣   = Rp325.000\n' +
-        '5.000⏣   = Rp650.000';
+        '500⏣     = Rp70.000\n' +
+        '1.000⏣   = Rp140.000\n' +
+        '1.500⏣   = Rp210.000\n' +
+        '2.000⏣   = Rp280.000\n' +
+        '2.500⏣   = Rp350.000\n' +
+        '3.000⏣   = Rp420.000\n' +
+        '3.500⏣   = Rp490.000\n' +
+        '4.000⏣   = Rp560.000\n' +
+        '4.500⏣   = Rp630.000\n' +
+        '5.000⏣   = Rp700.000';
 
     const embed = new EmbedBuilder()
         .setTitle('💸 ROBUX COMMUNITY PAYOUT')
